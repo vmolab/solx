@@ -25,12 +25,23 @@ pub struct Compiler {
 
 #[link(name = "solc", kind = "static")]
 extern "C" {
-    // Match the function signatures exactly.
-    // If your return type is `const char*`, you might wrap it in Rust with `*const c_char`.
-    // If you wrote a custom bridging function, rename to match that bridging function.
+    ///
+    /// Pass standard JSON input to the Solidity compiler.
+    ///
+    /// Passes `--base-path`, `--include-paths`, and `--allow-paths` just like it is done with the CLI.
+    ///
+    fn solidity_compile_default_callback(
+        input: *const ::libc::c_char,
+        base_path: *const ::libc::c_char,
+        include_paths_size: u64,
+        include_paths: *const *const ::libc::c_char,
+        allow_paths_size: u64,
+        allow_paths: *const *const ::libc::c_char,
+    ) -> *const std::os::raw::c_char;
 
-    fn solidity_compile(input: *const std::os::raw::c_char) -> *const std::os::raw::c_char;
-
+    ///
+    /// Get the Solidity compiler version.
+    ///
     fn solidity_version_extended() -> *const std::os::raw::c_char;
 }
 
@@ -48,16 +59,58 @@ impl Compiler {
     ///
     pub fn standard_json(
         &self,
-        input: &mut StandardJsonInput,
+        input_json: &mut StandardJsonInput,
         messages: &mut Vec<StandardJsonOutputError>,
         base_path: Option<String>,
         include_paths: Vec<String>,
         allow_paths: Option<String>,
     ) -> anyhow::Result<StandardJsonOutput> {
-        let input_string = serde_json::to_string(input).expect("Always valid");
-        let input_ffi = CString::new(input_string).expect("Always valid");
+        let input_string = serde_json::to_string(input_json).expect("Always valid");
+        let input_c_string = CString::new(input_string).expect("Always valid");
+
+        let base_path = base_path.map(|base_path| CString::new(base_path).expect("Always valid"));
+        let base_path = match base_path.as_ref() {
+            Some(base_path) => base_path.as_ptr(),
+            None => std::ptr::null(),
+        };
+
+        let include_paths: Vec<CString> = include_paths
+            .into_iter()
+            .map(|path| CString::new(path).expect("Always valid"))
+            .collect();
+        let include_paths: Vec<*const ::libc::c_char> =
+            include_paths.iter().map(|path| path.as_ptr()).collect();
+        let include_paths_ptr = if include_paths.is_empty() {
+            std::ptr::null()
+        } else {
+            include_paths.as_ptr()
+        };
+
+        let allow_paths = allow_paths
+            .map(|allow_paths| {
+                allow_paths
+                    .split(',')
+                    .map(|path| CString::new(path.to_owned()).expect("Always valid"))
+                    .collect::<Vec<CString>>()
+            })
+            .unwrap_or_default();
+        let allow_paths: Vec<*const ::libc::c_char> =
+            allow_paths.iter().map(|path| path.as_ptr()).collect();
+        let allow_paths_ptr = if allow_paths.is_empty() {
+            std::ptr::null()
+        } else {
+            allow_paths.as_ptr()
+        };
+
         let output_ffi = unsafe {
-            let output_pointer = solidity_compile(input_ffi.as_ptr());
+            let output_pointer = solidity_compile_default_callback(
+                input_c_string.as_ptr(),
+                base_path,
+                include_paths.len() as u64,
+                include_paths_ptr,
+                allow_paths.len() as u64,
+                allow_paths_ptr,
+            );
             CStr::from_ptr(output_pointer)
                 .to_string_lossy()
                 .into_owned()
@@ -72,16 +125,9 @@ impl Compiler {
             }
         };
 
-        solc_output
-            .errors
-            .retain(|error| match error.error_code.as_deref() {
-                Some(code) => !StandardJsonOutputError::IGNORED_WARNING_CODES.contains(&code),
-                None => true,
-            });
+        input_json.resolve_sources();
         solc_output.errors.append(messages);
-
-        input.resolve_sources();
-        solc_output.preprocess_ast(&input.sources, &self.version)?;
+        solc_output.preprocess_ast(&input_json.sources, &self.version)?;
         solc_output.remove_evm_artifacts();
 
         Ok(solc_output)
