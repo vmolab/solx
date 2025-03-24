@@ -121,7 +121,7 @@ impl Build {
                         Err(error) => {
                             self.messages
                                 .push(solx_solc::StandardJsonOutputError::new_error(
-                                    error, None, None,
+                                    None, error, None, None,
                                 ));
                             continue;
                         }
@@ -161,13 +161,13 @@ impl Build {
                         Err(error) => {
                             self.messages
                                 .push(solx_solc::StandardJsonOutputError::new_error(
-                                    error, None, None,
+                                    None, error, None, None,
                                 ));
                             continue;
                         }
                     };
                 object.bytecode = linked_object.as_slice().to_owned();
-                object.object_format = object_format;
+                object.format = object_format;
             }
         }
 
@@ -245,12 +245,27 @@ impl Build {
     pub fn write_to_standard_json(
         self,
         standard_json: &mut solx_solc::StandardJsonOutput,
-        solc_version: solx_solc::Version,
     ) -> anyhow::Result<()> {
         let mut errors = Vec::with_capacity(self.results.len());
         for result in self.results.into_values() {
             let build = match result {
-                Ok(build) => build,
+                Ok(build) => {
+                    errors.extend(
+                        build
+                            .deploy_object
+                            .errors
+                            .iter()
+                            .map(|error| (build.name.full_path.as_str(), error).into()),
+                    );
+                    errors.extend(
+                        build
+                            .runtime_object
+                            .errors
+                            .iter()
+                            .map(|error| (build.name.full_path.as_str(), error).into()),
+                    );
+                    build
+                }
                 Err(error) => {
                     errors.push(error);
                     continue;
@@ -280,9 +295,6 @@ impl Build {
         }
 
         standard_json.errors.extend(errors);
-        standard_json.version = Some(solc_version.default.to_string());
-        standard_json.long_version = Some(solc_version.long.to_owned());
-
         Ok(())
     }
 }

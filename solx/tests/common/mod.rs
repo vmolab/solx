@@ -19,12 +19,15 @@ use assert_cmd::Command;
 use solx::project::Project;
 use solx_solc::CollectableError;
 
+/// Shared lock for unit tests, as `solc` libraries are not thread-safe.
+pub static UNIT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 ///
 /// Setup required test dependencies.
 ///
 pub fn setup() -> anyhow::Result<()> {
     // Set the `solx` binary path
-    let solx_bin = Command::cargo_bin(solx::DEFAULT_EXECUTABLE_NAME)?;
+    let solx_bin = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
     let _ = solx::process::EXECUTABLE.set(PathBuf::from(solx_bin.get_program()));
 
     // Enable LLVM pretty stack trace
@@ -76,13 +79,15 @@ pub fn build_solidity_standard_json(
         solx_solc::StandardJsonInputOptimizer::default(),
         None,
         via_ir,
-        solx_solc::StandardJsonInputSelection::new_required(via_ir),
+        solx_solc::StandardJsonInputSelection::new(via_ir),
         solx_solc::StandardJsonInputMetadata::default(),
         vec![],
     )?;
 
-    let mut solc_output =
-        solc_compiler.standard_json(&mut solc_input, &mut vec![], None, vec![], None)?;
+    let mut solc_output = {
+        let _lock = UNIT_TEST_LOCK.lock();
+        solc_compiler.standard_json(&mut solc_input, &mut vec![], None, vec![], None)
+    }?;
     solc_output.check_errors()?;
 
     let linker_symbols = libraries.as_linker_symbols()?;
@@ -102,7 +107,7 @@ pub fn build_solidity_standard_json(
     let build = build.link(linker_symbols);
     build.check_errors()?;
 
-    build.write_to_standard_json(&mut solc_output, solc_compiler.version)?;
+    build.write_to_standard_json(&mut solc_output)?;
     solc_output.check_errors()?;
     Ok(solc_output)
 }
@@ -114,8 +119,6 @@ pub fn build_yul(
     sources: BTreeMap<String, String>,
 ) -> anyhow::Result<solx_solc::StandardJsonOutput> {
     self::setup()?;
-
-    let solc_compiler = solx_solc::Compiler::default();
 
     era_compiler_llvm_context::initialize_target(era_compiler_common::Target::EVM);
 
@@ -146,7 +149,7 @@ pub fn build_yul(
     let build = build.link(BTreeMap::new());
     build.check_errors()?;
 
-    build.write_to_standard_json(&mut solc_output, solc_compiler.version)?;
+    build.write_to_standard_json(&mut solc_output)?;
     solc_output.check_errors()?;
     Ok(solc_output)
 }
@@ -169,7 +172,10 @@ pub fn build_yul_standard_json(
         solc_input.settings.optimizer.mode,
     )?;
 
-    let mut solc_output = solc_compiler.validate_yul_standard_json(&mut solc_input, &mut vec![])?;
+    let mut solc_output = {
+        let _lock = UNIT_TEST_LOCK.lock();
+        solc_compiler.validate_yul_standard_json(&mut solc_input, &mut vec![])
+    }?;
 
     let project = Project::try_from_yul_sources(
         solc_input.sources,
@@ -189,7 +195,7 @@ pub fn build_yul_standard_json(
     let build = build.link(BTreeMap::new());
     build.check_errors()?;
 
-    build.write_to_standard_json(&mut solc_output, solc_compiler.version)?;
+    build.write_to_standard_json(&mut solc_output)?;
     solc_output.check_errors()?;
     Ok(solc_output)
 }
@@ -201,8 +207,6 @@ pub fn build_llvm_ir_standard_json(
     input: solx_solc::StandardJsonInput,
 ) -> anyhow::Result<solx_solc::StandardJsonOutput> {
     self::setup()?;
-
-    let solc_compiler = solx_solc::Compiler::default();
 
     era_compiler_llvm_context::initialize_target(era_compiler_common::Target::EVM);
 
@@ -228,7 +232,7 @@ pub fn build_llvm_ir_standard_json(
     let build = build.link(BTreeMap::new());
     build.check_errors()?;
 
-    build.write_to_standard_json(&mut output, solc_compiler.version)?;
+    build.write_to_standard_json(&mut output)?;
     output.check_errors()?;
     Ok(output)
 }

@@ -7,12 +7,12 @@ pub mod error;
 pub mod source;
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
 
-use crate::standard_json::input::settings::selection::selector::Selector;
-use crate::standard_json::input::settings::selection::Selection;
+use crate::standard_json::input::settings::selection::selector::Selector as StandardJSONInputSettingsSelector;
 use crate::standard_json::input::source::Source as StandardJSONInputSource;
 use crate::version::Version;
 
@@ -36,16 +36,6 @@ pub struct Output {
     /// The compilation errors and warnings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<JsonOutputError>,
-
-    /// The `solc` compiler version.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    /// The `solc` compiler long version.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub long_version: Option<String>,
-    /// The `solx` compiler version.
-    #[serde(default = "crate::version")]
-    pub zk_version: String,
 }
 
 impl Output {
@@ -68,10 +58,6 @@ impl Output {
             contracts: BTreeMap::new(),
             sources,
             errors: std::mem::take(messages),
-
-            version: None,
-            long_version: None,
-            zk_version: crate::version(),
         }
     }
 
@@ -85,31 +71,37 @@ impl Output {
             contracts: BTreeMap::new(),
             sources: BTreeMap::new(),
             errors: messages,
-
-            version: None,
-            long_version: None,
-            zk_version: crate::version(),
         }
     }
 
     ///
     /// Prunes the output JSON and prints it to stdout.
     ///
-    pub fn write_and_exit(mut self, selection_to_prune: Selection) -> ! {
+    pub fn write_and_exit(
+        mut self,
+        selection_to_prune: BTreeSet<StandardJSONInputSettingsSelector>,
+    ) -> ! {
         let contracts = self
             .contracts
             .values_mut()
             .flat_map(|contracts| contracts.values_mut())
             .collect::<Vec<&mut Contract>>();
         for contract in contracts.into_iter() {
-            contract.metadata = String::new(); // TODO: fix metadata
-            if selection_to_prune.contains(&Selector::Yul) {
+            if selection_to_prune.contains(&StandardJSONInputSettingsSelector::Yul) {
                 contract.ir_optimized = String::new();
             }
             if let Some(ref mut evm) = contract.evm {
-                if selection_to_prune.contains(&Selector::EVMLA) {
+                if selection_to_prune.contains(&StandardJSONInputSettingsSelector::EVMLA) {
                     evm.legacy_assembly = serde_json::Value::Null;
                 }
+            }
+            if contract
+                .evm
+                .as_mut()
+                .map(|evm| evm.is_empty())
+                .unwrap_or_default()
+            {
+                contract.evm = None;
             }
         }
 
@@ -130,6 +122,7 @@ impl Output {
             for (_, contract) in file.iter_mut() {
                 if let Some(evm) = contract.evm.as_mut() {
                     evm.bytecode = None;
+                    evm.deployed_bytecode = None;
                 }
             }
         }
@@ -142,6 +135,7 @@ impl Output {
     ///
     pub fn push_error(&mut self, path: Option<String>, error: anyhow::Error) {
         self.errors.push(JsonOutputError::new_error(
+            None,
             error,
             path.map(JsonOutputErrorSourceLocation::new),
             None,

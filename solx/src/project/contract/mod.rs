@@ -65,7 +65,7 @@ impl Contract {
     pub fn compile_to_evm(
         self,
         identifier_paths: BTreeMap<String, String>,
-        missing_libraries: BTreeSet<String>,
+        deployed_libraries: BTreeSet<String>,
         metadata_hash_type: era_compiler_common::HashType,
         optimizer_settings: era_compiler_llvm_context::OptimizerSettings,
         llvm_options: Vec<String>,
@@ -79,14 +79,9 @@ impl Contract {
 
         let optimizer = era_compiler_llvm_context::Optimizer::new(optimizer_settings);
 
-        let metadata = Metadata::new(
-            self.source_metadata,
-            solc_version.default.to_owned(),
-            solc_version.llvm_revision.to_owned(),
-            optimizer.settings().to_owned(),
-            llvm_options.as_slice(),
-        );
-        let metadata_string = serde_json::to_string(&metadata).expect("Always valid");
+        let metadata_string =
+            Metadata::new(optimizer.settings().to_owned(), llvm_options.as_slice())
+                .insert_into(self.source_metadata);
         let metadata_hash = match metadata_hash_type {
             era_compiler_common::HashType::None => None,
             era_compiler_common::HashType::Keccak256 => Some(era_compiler_common::Hash::keccak256(
@@ -102,6 +97,11 @@ impl Contract {
                 let runtime_code = deploy_code.take_runtime_code().ok_or_else(|| {
                     anyhow::anyhow!("Contract `{identifier}` has no runtime code")
                 })?;
+
+                let mut deploy_code_libraries = deploy_code.get_unlinked_libraries();
+                deploy_code_libraries.retain(|library| !deployed_libraries.contains(library));
+                let mut runtime_code_libraries = runtime_code.get_unlinked_libraries();
+                runtime_code_libraries.retain(|library| !deployed_libraries.contains(library));
 
                 let deploy_code_dependecies = deploy_code.get_evm_dependencies(Some(&runtime_code));
                 let runtime_code_dependecies = runtime_code.get_evm_dependencies(None);
@@ -132,14 +132,16 @@ impl Contract {
                     .map_err(|error| {
                         anyhow::anyhow!("{runtime_code_segment} code LLVM IR generator: {error}")
                     })?;
-                let runtime_buffer = runtime_context.build()?;
-                let runtime_build = EVMContractObject::new(
+                let (runtime_buffer, runtime_code_errors) = runtime_context.build()?;
+                let runtime_object = EVMContractObject::new(
                     runtime_code_identifier,
                     self.name.clone(),
                     runtime_buffer.as_slice().to_owned(),
                     true,
                     runtime_code_segment,
                     runtime_code_dependecies,
+                    runtime_code_libraries,
+                    runtime_code_errors,
                 );
 
                 let immutables_map = runtime_buffer.get_immutables_evm();
@@ -169,24 +171,24 @@ impl Contract {
                     .map_err(|error| {
                         anyhow::anyhow!("{deploy_code_segment} code LLVM IR generator: {error}")
                     })?;
-                let deploy_buffer = deploy_context.build()?;
-                let deploy_build = EVMContractObject::new(
+                let (deploy_buffer, deploy_code_errors) = deploy_context.build()?;
+                let deploy_object = EVMContractObject::new(
                     deploy_code_identifier,
                     self.name.clone(),
                     deploy_buffer.as_slice().to_owned(),
                     true,
                     deploy_code_segment,
                     deploy_code_dependecies,
+                    deploy_code_libraries,
+                    deploy_code_errors,
                 );
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    deploy_build,
-                    runtime_build,
+                    deploy_object,
+                    runtime_object,
                     metadata_hash,
                     metadata_string,
-                    missing_libraries,
-                    era_compiler_common::ObjectFormat::ELF,
                 ))
             }
             IR::EVMLA(mut deploy_code) => {
@@ -199,6 +201,11 @@ impl Contract {
                 let deploy_code_identifier = self.name.full_path.to_owned();
                 let runtime_code_identifier =
                     format!("{}.{runtime_code_segment}", self.name.full_path);
+
+                let mut deploy_code_libraries = deploy_code.get_unlinked_libraries();
+                deploy_code_libraries.retain(|library| !deployed_libraries.contains(library));
+                let mut runtime_code_libraries = runtime_code_assembly.get_unlinked_libraries();
+                runtime_code_libraries.retain(|library| !deployed_libraries.contains(library));
 
                 let mut deploy_code_dependecies =
                     solx_yul::Dependencies::new(deploy_code_identifier.as_str());
@@ -227,14 +234,16 @@ impl Contract {
                     .map_err(|error| {
                         anyhow::anyhow!("{runtime_code_segment} code LLVM IR generator: {error}")
                     })?;
-                let runtime_buffer = runtime_context.build()?;
-                let runtime_build = EVMContractObject::new(
+                let (runtime_buffer, runtime_code_errors) = runtime_context.build()?;
+                let runtime_object = EVMContractObject::new(
                     runtime_code_identifier,
                     self.name.clone(),
                     runtime_buffer.as_slice().to_owned(),
                     false,
                     runtime_code_segment,
                     runtime_code_dependecies,
+                    runtime_code_libraries,
+                    runtime_code_errors,
                 );
 
                 let immutables_map = runtime_buffer.get_immutables_evm();
@@ -259,24 +268,24 @@ impl Contract {
                     .map_err(|error| {
                         anyhow::anyhow!("{deploy_code_segment} code LLVM IR generator: {error}")
                     })?;
-                let deploy_buffer = deploy_context.build()?;
-                let deploy_build = EVMContractObject::new(
+                let (deploy_buffer, deploy_code_errors) = deploy_context.build()?;
+                let deploy_object = EVMContractObject::new(
                     deploy_code_identifier,
                     self.name.clone(),
                     deploy_buffer.as_slice().to_owned(),
                     false,
                     deploy_code_segment,
                     deploy_code_dependecies,
+                    deploy_code_libraries,
+                    deploy_code_errors,
                 );
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    deploy_build,
-                    runtime_build,
+                    deploy_object,
+                    runtime_object,
                     metadata_hash,
                     metadata_string,
-                    missing_libraries,
-                    era_compiler_common::ObjectFormat::ELF,
                 ))
             }
             IR::LLVMIR(_llvm_ir) => anyhow::bail!("LLVM IR is not supported yet."),
@@ -284,11 +293,14 @@ impl Contract {
     }
 
     ///
-    /// Get the list of missing deployable libraries.
+    /// Get the list of unlinked deployable libraries.
     ///
-    pub fn get_missing_libraries(&self, deployed_libraries: &BTreeSet<String>) -> BTreeSet<String> {
+    pub fn get_unlinked_libraries(
+        &self,
+        deployed_libraries: &BTreeSet<String>,
+    ) -> BTreeSet<String> {
         self.ir
-            .get_missing_libraries()
+            .get_unlinked_libraries()
             .into_iter()
             .filter(|library| !deployed_libraries.contains(library))
             .collect::<BTreeSet<String>>()

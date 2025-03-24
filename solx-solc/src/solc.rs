@@ -8,7 +8,6 @@ use std::path::PathBuf;
 
 use crate::standard_json::input::settings::libraries::Libraries as StandardJsonInputSettingsLibraries;
 use crate::standard_json::input::settings::optimizer::Optimizer as StandardJsonInputSettingsOptimizer;
-use crate::standard_json::input::settings::selection::Selection as StandardJsonInputSettingsSelection;
 use crate::standard_json::input::Input as StandardJsonInput;
 use crate::standard_json::output::error::Error as StandardJsonOutputError;
 use crate::standard_json::output::Output as StandardJsonOutput;
@@ -66,6 +65,12 @@ impl Compiler {
         include_paths: Vec<String>,
         allow_paths: Option<String>,
     ) -> anyhow::Result<StandardJsonOutput> {
+        input_json.settings.output_selection.retain_solc();
+        input_json
+            .settings
+            .output_selection
+            .extend(input_json.settings.via_ir);
+
         let input_string = serde_json::to_string(input_json).expect("Always valid");
         let input_c_string = CString::new(input_string).expect("Always valid");
 
@@ -134,6 +139,12 @@ impl Compiler {
         };
 
         input_json.resolve_sources();
+        solc_output
+            .errors
+            .retain(|error| match error.error_code.as_deref() {
+                Some(code) => !StandardJsonOutputError::IGNORED_WARNING_CODES.contains(&code),
+                None => true,
+            });
         solc_output.errors.append(messages);
         solc_output.preprocess_ast(&input_json.sources, &self.version)?;
         solc_output.remove_evm_artifacts();
@@ -167,7 +178,7 @@ impl Compiler {
         solc_input: &mut StandardJsonInput,
         messages: &mut Vec<StandardJsonOutputError>,
     ) -> anyhow::Result<StandardJsonOutput> {
-        solc_input.extend_selection(StandardJsonInputSettingsSelection::new_yul_validation());
+        solc_input.settings.output_selection.extend(true);
         let solc_output = self.standard_json(solc_input, messages, None, vec![], None)?;
         Ok(solc_output)
     }
@@ -185,18 +196,19 @@ impl Compiler {
 
         let lines = output.lines().collect::<Vec<&str>>();
 
-        let default: semver::Version = lines
+        let long = lines
             .get(1)
             .unwrap_or_else(|| panic!("solc version parsing: missing line 1."))
             .split(' ')
             .nth(1)
             .expect("solc version parsing: missing version.")
+            .to_owned();
+        let default: semver::Version = long
             .split('+')
             .next()
             .expect("solc version parsing: missing semver.")
             .parse::<semver::Version>()
             .unwrap_or_else(|error| panic!("solc version parsing: {error}."));
-
         let llvm_revision: semver::Version = lines
             .get(2)
             .expect("LLVM revision parsing: missing line 2.")
@@ -209,6 +221,6 @@ impl Compiler {
             .parse::<semver::Version>()
             .unwrap_or_else(|error| panic!("LLVM revision parsing: {error}."));
 
-        Version::new(output, default, llvm_revision)
+        Version::new(long, default, llvm_revision)
     }
 }

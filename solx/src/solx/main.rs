@@ -4,6 +4,7 @@
 
 pub mod arguments;
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -36,14 +37,14 @@ fn main() -> anyhow::Result<()> {
         }
         if let Err(error) = main_inner(arguments, &mut messages) {
             messages.push(solx_solc::StandardJsonOutputError::new_error(
-                error, None, None,
+                None, error, None, None,
             ));
         }
     }
 
     if is_standard_json {
         let output = solx_solc::StandardJsonOutput::new_with_messages(messages);
-        output.write_and_exit(solx_solc::StandardJsonInputSelection::default());
+        output.write_and_exit(BTreeSet::new());
     }
 
     let exit_code = if messages.iter().any(|error| error.severity == "error") {
@@ -72,25 +73,17 @@ fn main_inner(
     messages: &mut Vec<solx_solc::StandardJsonOutputError>,
 ) -> anyhow::Result<()> {
     if arguments.version {
-        writeln!(
-            std::io::stdout(),
-            "{} v{}, {} statically linked with:",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION"),
-            env!("CARGO_PKG_DESCRIPTION"),
-        )?;
-        writeln!(
-            std::io::stdout(),
-            "    LLVM build {}",
-            inkwell::support::get_commit_id().to_string(),
-        )?;
         let solc = solx_solc::Compiler::default();
         writeln!(
             std::io::stdout(),
-            "    solc v{}, LLVM revision v{}",
-            solc.version.default,
+            "{}, {} v{}, LLVM revision: v{}, LLVM build: {}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_DESCRIPTION"),
+            env!("CARGO_PKG_VERSION"),
             solc.version.llvm_revision,
+            inkwell::support::get_commit_id().to_string(),
         )?;
+        writeln!(std::io::stdout(), "Version: {}", solc.version.long)?;
         return Ok(());
     }
 
