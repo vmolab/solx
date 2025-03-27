@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 
 use era_compiler_llvm_context::IContext;
 
-use crate::build_evm::contract::object::Object as EVMContractObject;
-use crate::build_evm::contract::Contract as EVMContractBuild;
+use crate::build::contract::object::Object as EVMContractObject;
+use crate::build::contract::Contract as EVMContractBuild;
 use crate::yul::parser::wrapper::Wrap;
 
 use self::ir::IR;
@@ -26,20 +26,16 @@ pub struct Contract {
     pub name: era_compiler_common::ContractName,
     /// The IR source code data.
     pub ir: IR,
-    /// The origin `solc` metadata.
-    pub source_metadata: String,
+    /// The original `solc` metadata.
+    pub metadata: Option<String>,
 }
 
 impl Contract {
     ///
     /// A shortcut constructor.
     ///
-    pub fn new(name: era_compiler_common::ContractName, ir: IR, source_metadata: String) -> Self {
-        Self {
-            name,
-            ir,
-            source_metadata,
-        }
+    pub fn new(name: era_compiler_common::ContractName, ir: IR, metadata: Option<String>) -> Self {
+        Self { name, ir, metadata }
     }
 
     ///
@@ -65,6 +61,7 @@ impl Contract {
     pub fn compile_to_evm(
         self,
         identifier_paths: BTreeMap<String, String>,
+        output_bytecode: bool,
         deployed_libraries: BTreeSet<String>,
         metadata_hash_type: era_compiler_common::HashType,
         optimizer_settings: era_compiler_llvm_context::OptimizerSettings,
@@ -79,18 +76,31 @@ impl Contract {
 
         let optimizer = era_compiler_llvm_context::Optimizer::new(optimizer_settings);
 
-        let metadata_string =
+        let metadata = self.metadata.map(|metadata| {
             Metadata::new(optimizer.settings().to_owned(), llvm_options.as_slice())
-                .insert_into(self.source_metadata);
-        let metadata_hash = match metadata_hash_type {
-            era_compiler_common::HashType::None => None,
-            era_compiler_common::HashType::Keccak256 => Some(era_compiler_common::Hash::keccak256(
-                metadata_string.as_bytes(),
-            )),
-            era_compiler_common::HashType::Ipfs => {
-                Some(era_compiler_common::Hash::ipfs(metadata_string.as_bytes()))
-            }
-        };
+                .insert_into(metadata.as_str())
+        });
+        let metadata_hash = metadata
+            .as_ref()
+            .and_then(|metadata| match metadata_hash_type {
+                era_compiler_common::HashType::None => None,
+                era_compiler_common::HashType::Keccak256 => {
+                    Some(era_compiler_common::Hash::keccak256(metadata.as_bytes()))
+                }
+                era_compiler_common::HashType::Ipfs => {
+                    Some(era_compiler_common::Hash::ipfs(metadata.as_bytes()))
+                }
+            });
+
+        if !output_bytecode {
+            return Ok(EVMContractBuild::new(
+                self.name,
+                None,
+                None,
+                metadata_hash,
+                metadata,
+            ));
+        }
 
         match self.ir {
             IR::Yul(mut deploy_code) => {
@@ -185,10 +195,10 @@ impl Contract {
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    deploy_object,
-                    runtime_object,
+                    Some(deploy_object),
+                    Some(runtime_object),
                     metadata_hash,
-                    metadata_string,
+                    metadata,
                 ))
             }
             IR::EVMLA(mut deploy_code) => {
@@ -282,10 +292,10 @@ impl Contract {
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    deploy_object,
-                    runtime_object,
+                    Some(deploy_object),
+                    Some(runtime_object),
                     metadata_hash,
-                    metadata_string,
+                    metadata,
                 ))
             }
             IR::LLVMIR(_llvm_ir) => anyhow::bail!("LLVM IR is not supported yet."),
