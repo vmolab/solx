@@ -17,7 +17,7 @@ use std::sync::Once;
 use assert_cmd::Command;
 
 use solx::project::Project;
-use solx_solc::CollectableError;
+use solx_standard_json::CollectableError;
 
 /// Shared lock for unit tests, as `solc` libraries are not thread-safe.
 pub static UNIT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -55,32 +55,32 @@ pub fn read_sources(paths: &[&str]) -> BTreeMap<String, String> {
 ///
 pub fn build_solidity_standard_json(
     sources: BTreeMap<String, String>,
-    libraries: solx_solc::StandardJsonInputLibraries,
+    libraries: era_compiler_common::Libraries,
     metadata_hash_type: era_compiler_common::HashType,
     remappings: BTreeSet<String>,
     via_ir: bool,
     optimizer_settings: era_compiler_llvm_context::OptimizerSettings,
-) -> anyhow::Result<solx_solc::StandardJsonOutput> {
+) -> anyhow::Result<solx_standard_json::Output> {
     self::setup()?;
 
     let solc_compiler = solx_solc::Compiler::default();
 
     era_compiler_llvm_context::initialize_target(era_compiler_common::Target::EVM);
 
-    let sources: BTreeMap<String, solx_solc::StandardJsonInputSource> = sources
+    let sources: BTreeMap<String, solx_standard_json::InputSource> = sources
         .into_iter()
-        .map(|(path, source)| (path, solx_solc::StandardJsonInputSource::from(source)))
+        .map(|(path, source)| (path, solx_standard_json::InputSource::from(source)))
         .collect();
 
-    let mut solc_input = solx_solc::StandardJsonInput::try_from_solidity_sources(
+    let mut solc_input = solx_standard_json::Input::try_from_solidity_sources(
         sources,
         libraries.clone(),
         remappings,
-        solx_solc::StandardJsonInputOptimizer::default(),
+        solx_standard_json::InputOptimizer::default(),
         None,
         via_ir,
-        solx_solc::StandardJsonInputSelection::new(true, true, Some(via_ir)),
-        solx_solc::StandardJsonInputMetadata::default(),
+        solx_standard_json::InputSelection::new_compilation(true, true, Some(via_ir)),
+        solx_standard_json::InputMetadata::default(),
         vec![],
     )?;
 
@@ -119,8 +119,8 @@ pub fn build_solidity_standard_json(
 /// If `solc_compiler` is set, the standard JSON is validated with `solc`.
 ///
 pub fn build_yul_standard_json(
-    mut solc_input: solx_solc::StandardJsonInput,
-) -> anyhow::Result<solx_solc::StandardJsonOutput> {
+    mut solc_input: solx_standard_json::Input,
+) -> anyhow::Result<solx_standard_json::Output> {
     self::setup()?;
 
     let solc_compiler = solx_solc::Compiler::default();
@@ -138,7 +138,7 @@ pub fn build_yul_standard_json(
 
     let project = Project::try_from_yul_sources(
         solc_input.sources,
-        solx_solc::StandardJsonInputLibraries::default(),
+        era_compiler_common::Libraries::default(),
         solc_input.settings.output_selection,
         Some(&mut solc_output),
         None,
@@ -165,8 +165,8 @@ pub fn build_yul_standard_json(
 /// Builds the LLVM IR standard JSON and returns the standard JSON output.
 ///
 pub fn build_llvm_ir_standard_json(
-    input: solx_solc::StandardJsonInput,
-) -> anyhow::Result<solx_solc::StandardJsonOutput> {
+    input: solx_standard_json::Input,
+) -> anyhow::Result<solx_standard_json::Output> {
     self::setup()?;
 
     era_compiler_llvm_context::initialize_target(era_compiler_common::Target::EVM);
@@ -174,7 +174,7 @@ pub fn build_llvm_ir_standard_json(
     let optimizer_settings =
         era_compiler_llvm_context::OptimizerSettings::try_from_cli(input.settings.optimizer.mode)?;
 
-    let mut output = solx_solc::StandardJsonOutput::new(&BTreeMap::new(), &mut vec![]);
+    let mut output = solx_standard_json::Output::new(&BTreeMap::new(), &mut vec![]);
 
     let project = Project::try_from_llvm_ir_sources(
         input.sources,

@@ -15,10 +15,9 @@ use rayon::iter::IntoParallelIterator;
 use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 
-use crate::standard_json::input::settings::libraries::Libraries as StandardJsonInputSettingsLibraries;
-use crate::standard_json::input::settings::metadata::Metadata as StandardJsonInputSettingsMetadata;
-use crate::standard_json::input::settings::optimizer::Optimizer as StandardJsonInputSettingsOptimizer;
-use crate::standard_json::input::settings::selection::Selection as StandardJsonInputSettingsSelection;
+use crate::input::settings::metadata::Metadata as InputSettingsMetadata;
+use crate::input::settings::optimizer::Optimizer as InputSettingsOptimizer;
+use crate::input::settings::selection::Selection as InputSettingsSelection;
 
 use self::language::Language;
 use self::settings::Settings;
@@ -62,15 +61,15 @@ impl Input {
         paths: &[PathBuf],
         libraries: &[String],
         remappings: BTreeSet<String>,
-        optimizer: StandardJsonInputSettingsOptimizer,
+        optimizer: InputSettingsOptimizer,
         evm_version: Option<era_compiler_common::EVMVersion>,
         via_ir: bool,
-        output_selection: StandardJsonInputSettingsSelection,
-        metadata: StandardJsonInputSettingsMetadata,
+        output_selection: InputSettingsSelection,
+        metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> anyhow::Result<Self> {
         let mut paths: BTreeSet<PathBuf> = paths.iter().cloned().collect();
-        let libraries = StandardJsonInputSettingsLibraries::try_from(libraries)?;
+        let libraries = era_compiler_common::Libraries::try_from(libraries)?;
         for library_file in libraries.as_inner().keys() {
             paths.insert(PathBuf::from(library_file));
         }
@@ -101,13 +100,13 @@ impl Input {
     ///
     pub fn try_from_solidity_sources(
         sources: BTreeMap<String, Source>,
-        libraries: StandardJsonInputSettingsLibraries,
+        libraries: era_compiler_common::Libraries,
         remappings: BTreeSet<String>,
-        optimizer: StandardJsonInputSettingsOptimizer,
+        optimizer: InputSettingsOptimizer,
         evm_version: Option<era_compiler_common::EVMVersion>,
         via_ir: bool,
-        output_selection: StandardJsonInputSettingsSelection,
-        metadata: StandardJsonInputSettingsMetadata,
+        output_selection: InputSettingsSelection,
+        metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -131,8 +130,10 @@ impl Input {
     ///
     pub fn from_yul_sources(
         sources: BTreeMap<String, Source>,
-        libraries: StandardJsonInputSettingsLibraries,
-        optimizer: StandardJsonInputSettingsOptimizer,
+        libraries: era_compiler_common::Libraries,
+        optimizer: InputSettingsOptimizer,
+        output_selection: InputSettingsSelection,
+        metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
         Self {
@@ -144,8 +145,8 @@ impl Input {
                 BTreeSet::new(),
                 None,
                 false,
-                StandardJsonInputSettingsSelection::default(),
-                StandardJsonInputSettingsMetadata::default(),
+                output_selection,
+                metadata,
                 llvm_options,
             ),
         }
@@ -156,8 +157,10 @@ impl Input {
     ///
     pub fn from_yul_paths(
         paths: &[PathBuf],
-        libraries: StandardJsonInputSettingsLibraries,
-        optimizer: StandardJsonInputSettingsOptimizer,
+        libraries: era_compiler_common::Libraries,
+        optimizer: InputSettingsOptimizer,
+        output_selection: InputSettingsSelection,
+        metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
         let sources = paths
@@ -169,7 +172,14 @@ impl Input {
                 )
             })
             .collect();
-        Self::from_yul_sources(sources, libraries, optimizer, llvm_options)
+        Self::from_yul_sources(
+            sources,
+            libraries,
+            optimizer,
+            output_selection,
+            metadata,
+            llvm_options,
+        )
     }
 
     ///
