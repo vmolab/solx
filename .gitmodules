@@ -1,10 +1,10 @@
 [submodule "llvm"]
 	path = llvm
 	url = https://github.com/matter-labs/era-compiler-llvm
-	branch = main
+	branch = dborisenkov-llvm19
 	update = none
 [submodule "era-solidity"]
 	path = era-solidity
 	url = https://github.com/matter-labs/era-solidity
-	branch = app-console-backup
+	branch = 0.8.29
 	update = none
