@@ -12,9 +12,6 @@ pub const TEST_SOLIDITY_CONTRACT_NAME: &str = "Test.sol";
 pub const TEST_SOLIDITY_CONTRACT_PATH: &str = "tests/data/contracts/solidity/Test.sol";
 
 /// A test input file.
-pub const TEST_SOLIDITY_CONTRACT_GREETER_PATH: &str = "tests/data/contracts/solidity/Greeter.sol";
-
-/// A test input file.
 pub const TEST_SOLIDITY_CONTRACT_CALLER_MAIN_PATH: &str =
     "tests/data/contracts/solidity/caller/Main.sol";
 
@@ -26,11 +23,11 @@ pub const TEST_SOLIDITY_CONTRACT_CALLER_CALLABLE_PATH: &str =
 pub const TEST_SOLIDITY_CONTRACT_SIMPLE_CONTRACT_PATH: &str =
     "tests/data/contracts/solidity/SimpleContract.sol";
 
-/// A test input file.
+/// A test input file. TODO
 pub const TEST_SOLIDITY_CONTRACT_LINKER_MIXED_DEPS_PATH: &str =
     "tests/data/contracts/solidity/LinkedMixedDeps.sol";
 
-/// A test input file.
+/// A test input file. TODO
 pub const TEST_SOLIDITY_CONTRACT_LINKER_MIXED_DEPS_MULTI_LEVEL_PATH: &str =
     "tests/data/contracts/solidity/LinkedMixedDepsMultiLevel.sol";
 
@@ -70,39 +67,73 @@ pub const TEST_SOLIDITY_STANDARD_JSON_INVALID_UTF8_PATH: &str =
     "tests/data/standard_json_input/invalid_utf8.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLC_PATH: &str =
-    "tests/data/standard_json_input/solidity_solc.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_PATH: &str = "tests/data/standard_json_input/solidity.json";
 
 /// A test input file.
 pub const TEST_SOLIDITY_STANDARD_JSON_DEPLOY_TIME_LINKING_PATH: &str =
     "tests/data/standard_json_input/solidity_deploy_time_linking.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLC_EMPTY_SOURCES_PATH: &str =
-    "tests/data/standard_json_input/solidity_solc_empty_sources.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_EMPTY_SOURCES_PATH: &str =
+    "tests/data/standard_json_input/solidity_empty_sources.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLC_MISSING_SOURCES_PATH: &str =
-    "tests/data/standard_json_input/solidity_solc_missing_sources.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_MISSING_SOURCES_PATH: &str =
+    "tests/data/standard_json_input/solidity_missing_sources.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLC_INVALID_PATH: &str =
-    "tests/data/standard_json_input/solidity_solc_invalid.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_INVALID_PATH: &str =
+    "tests/data/standard_json_input/solidity_invalid.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLX_RECURSION_PATH: &str =
-    "tests/data/standard_json_input/solidity_solx_recursion.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_RECURSION_PATH: &str =
+    "tests/data/standard_json_input/solidity_recursion.json";
 
 /// A test input file.
-pub const TEST_SOLIDITY_STANDARD_JSON_SOLX_INVALID_PATH: &str =
-    "tests/data/standard_json_input/solidity_solx_invalid.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_EVM_PATH: &str =
+    "tests/data/standard_json_input/select_evm.json";
 
 /// A test input file.
-pub const TEST_YUL_STANDARD_JSON_SOLC_PATH: &str = "tests/data/standard_json_input/yul_solc.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_EVM_BYTECODE_PATH: &str =
+    "tests/data/standard_json_input/select_evm_bytecode.json";
 
 /// A test input file.
-pub const TEST_YUL_STANDARD_JSON_SOLC_INVALID_PATH: &str =
-    "tests/data/standard_json_input/yul_solc_urls_invalid.json";
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_EVM_BYTECODE_OPCODES_PATH: &str =
+    "tests/data/standard_json_input/select_evm_bytecode_opcodes.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_EVM_DEPLOYED_BYTECODE_PATH: &str =
+    "tests/data/standard_json_input/select_evm_deployed_bytecode.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_EVM_DEPLOYED_BYTECODE_LINK_REFERENCES_PATH: &str =
+    "tests/data/standard_json_input/select_evm_deployed_bytecode_link_references.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_SINGLE_PATH: &str =
+    "tests/data/standard_json_input/select_single.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_NONE_PATH: &str =
+    "tests/data/standard_json_input/select_none.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_ALL_PATH: &str =
+    "tests/data/standard_json_input/select_all.json";
+
+/// A test input file.
+pub const TEST_SOLIDITY_STANDARD_JSON_SELECT_ALL_WILDCARD_PATH: &str =
+    "tests/data/standard_json_input/select_all_wildcard.json";
+
+/// A test input file.
+pub const TEST_YUL_STANDARD_JSON_PATH: &str = "tests/data/standard_json_input/yul.json";
+
+/// A test input file.
+pub const TEST_YUL_STANDARD_JSON_URLS_PATH: &str = "tests/data/standard_json_input/yul_urls.json";
+
+/// A test input file.
+pub const TEST_YUL_STANDARD_JSON_URLS_INVALID_PATH: &str =
+    "tests/data/standard_json_input/yul_urls_invalid.json";
 
 /// A test input file.
 pub const TEST_LLVM_IR_STANDARD_JSON_PATH: &str =
@@ -154,20 +185,3 @@ pub const LIBRARY_ADDRESS_MISSING: &str = "tests/data/contracts/solidity/MiniMat
 /// A test constant.
 pub const LIBRARY_ADDRESS_INVALID: &str =
     "tests/data/contracts/solidity/MiniMath.sol:MiniMath=INVALID";
-
-/// A test constant.
-pub const LIBRARY_LINKER: &str =
-    "Greeter.sol:GreeterHelper=0x1234567890abcdef1234567890abcdef12345678";
-
-/// A test constant.
-pub const LIBRARY_LINKER_CONTRACT_NAME_MISSING: &str =
-    "Greeter.sol=0x1234567890abcdef1234567890abcdef12345678";
-
-/// A test constant.
-pub const LIBRARY_LINKER_ADDRESS_MISSING: &str = "Greeter.sol:GreeterHelper";
-
-/// A test constant.
-pub const LIBRARY_LINKER_ADDRESS_INVALID: &str = "Greeter.sol:GreeterHelper=XINVALID";
-
-/// A test constant.
-pub const LIBRARY_LINKER_ADDRESS_INCORRECT_SIZE: &str = "Greeter.sol:GreeterHelper=0x12345678";

@@ -2,22 +2,15 @@
   "language": "Solidity",
   "sources":
   {
-    "SimpleContract":
+    "A":
     {
-      "urls": [
-        "tests/data/contracts/solidity/SimpleContract.sol"
-      ]
+      "content": "// SPDX-License-Identifier: Unlicensed\npragma solidity >=0.0; contract C {}"
     }
   },
   "settings": {
     "outputSelection": {
       "*": {
-        "": [
-        ],
         "*": [
-          "evm.bytecode.object",
-          "evm.bytecode.linkReferences",
-          "evm.deployedBytecode.object",
           "evm.deployedBytecode.linkReferences"
         ]
       }

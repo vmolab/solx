@@ -66,6 +66,9 @@ impl Compiler {
     ///
     /// The Solidity `--standard-json` mirror.
     ///
+    /// Metadata is always requested in order to calculate the metadata hash even if not requested in the `output_selection`.
+    /// EVM assembly or Yul is always selected in order to compile the Solidity code.
+    ///
     pub fn standard_json(
         &self,
         input_json: &mut solx_standard_json::Input,
@@ -76,7 +79,7 @@ impl Compiler {
         allow_paths: Option<String>,
     ) -> anyhow::Result<solx_standard_json::Output> {
         let original_output_selection = input_json.settings.output_selection.to_owned();
-
+        input_json.settings.output_selection.normalize();
         input_json.settings.output_selection.retain_solc();
         input_json
             .settings
@@ -86,6 +89,10 @@ impl Compiler {
             .settings
             .output_selection
             .set_selector(input_json.settings.via_ir.into());
+
+        let original_optimizer = input_json.settings.optimizer.to_owned();
+        input_json.settings.optimizer.mode = None;
+        input_json.settings.optimizer.size_fallback = None;
 
         let input_string = serde_json::to_string(input_json).expect("Always valid");
         let input_c_string = CString::new(input_string).expect("Always valid");
@@ -160,6 +167,7 @@ impl Compiler {
         };
 
         input_json.settings.output_selection = original_output_selection;
+        input_json.settings.optimizer = original_optimizer;
         solc_output
             .errors
             .retain(|error| match error.error_code.as_deref() {
@@ -186,7 +194,7 @@ impl Compiler {
             paths,
             libraries,
             solx_standard_json::InputOptimizer::default(),
-            solx_standard_json::InputSelection::default(),
+            &solx_standard_json::InputSelection::default(),
             solx_standard_json::InputMetadata::default(),
             vec![],
         );

@@ -12,7 +12,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use rayon::iter::IntoParallelIterator;
-use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 
 use crate::input::settings::metadata::Metadata as InputSettingsMetadata;
@@ -64,7 +63,7 @@ impl Input {
         optimizer: InputSettingsOptimizer,
         evm_version: Option<era_compiler_common::EVMVersion>,
         via_ir: bool,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> anyhow::Result<Self> {
@@ -110,7 +109,7 @@ impl Input {
         optimizer: InputSettingsOptimizer,
         evm_version: Option<era_compiler_common::EVMVersion>,
         via_ir: bool,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> anyhow::Result<Self> {
@@ -123,7 +122,7 @@ impl Input {
                 remappings,
                 evm_version,
                 via_ir,
-                output_selection,
+                output_selection.to_owned(),
                 metadata,
                 llvm_options,
             ),
@@ -137,7 +136,7 @@ impl Input {
         paths: &[PathBuf],
         libraries: era_compiler_common::Libraries,
         optimizer: InputSettingsOptimizer,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
@@ -168,7 +167,7 @@ impl Input {
         sources: BTreeMap<String, Source>,
         libraries: era_compiler_common::Libraries,
         optimizer: InputSettingsOptimizer,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
@@ -181,7 +180,7 @@ impl Input {
                 BTreeSet::new(),
                 None,
                 false,
-                output_selection,
+                output_selection.to_owned(),
                 metadata,
                 llvm_options,
             ),
@@ -195,7 +194,7 @@ impl Input {
         paths: &[PathBuf],
         libraries: era_compiler_common::Libraries,
         optimizer: InputSettingsOptimizer,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
@@ -209,7 +208,7 @@ impl Input {
             })
             .collect();
 
-        Self::from_yul_sources(
+        Self::from_llvm_ir_sources(
             sources,
             libraries,
             optimizer,
@@ -226,7 +225,7 @@ impl Input {
         sources: BTreeMap<String, Source>,
         libraries: era_compiler_common::Libraries,
         optimizer: InputSettingsOptimizer,
-        output_selection: InputSettingsSelection,
+        output_selection: &InputSettingsSelection,
         metadata: InputSettingsMetadata,
         llvm_options: Vec<String>,
     ) -> Self {
@@ -239,22 +238,10 @@ impl Input {
                 BTreeSet::new(),
                 None,
                 false,
-                output_selection,
+                output_selection.to_owned(),
                 metadata,
                 llvm_options,
             ),
         }
-    }
-
-    ///
-    /// Tries to resolve all sources.
-    ///
-    pub fn resolve_sources(&mut self) {
-        self.sources
-            .par_iter_mut()
-            .map(|(_path, source)| {
-                let _ = source.try_resolve();
-            })
-            .collect::<Vec<()>>();
     }
 }

@@ -26,9 +26,15 @@
         ],
         "*": [
           "abi",
+          "metadata",
+          "devdoc",
+          "userdoc",
+          "storageLayout",
+          "transientStorageLayout",
           "evm.methodIdentifiers",
-          "evm.bytecode.object",
-          "evm.deployedBytecode.object"
+          "evm.legacyAssembly",
+          "irOptimized",
+          "evm"
         ]
       }
     },

@@ -62,8 +62,7 @@ impl Contract {
     pub fn compile_to_evm(
         self,
         identifier_paths: BTreeMap<String, String>,
-        output_assembly: bool,
-        output_bytecode: bool,
+        output_selection: solx_standard_json::InputSelection,
         deployed_libraries: BTreeSet<String>,
         metadata_hash_type: era_compiler_common::EVMMetadataHashType,
         optimizer_settings: era_compiler_llvm_context::OptimizerSettings,
@@ -91,9 +90,7 @@ impl Contract {
                 }
             });
 
-        if !output_bytecode && !output_assembly {
-            return Ok(EVMContractBuild::new(self.name, None, None, metadata));
-        }
+        let output_bytecode = output_selection.is_bytecode_set_for_any();
 
         let deploy_code_segment = era_compiler_common::CodeSegment::Deploy;
         let runtime_code_segment = era_compiler_common::CodeSegment::Runtime;
@@ -138,7 +135,11 @@ impl Contract {
                         anyhow::anyhow!("{runtime_code_segment} code LLVM IR generator: {error}")
                     })?;
                 let runtime_build = runtime_context.build(
-                    output_assembly,
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+                    ),
                     output_bytecode,
                     runtime_code_libraries,
                 )?;
@@ -151,7 +152,7 @@ impl Contract {
                     runtime_code_segment,
                     metadata_bytes,
                     runtime_code_dependecies,
-                    runtime_build.unlinked_symbols,
+                    runtime_build.unlinked_symbols.unwrap_or_default(),
                     runtime_build.warnings,
                 );
 
@@ -180,7 +181,11 @@ impl Contract {
                         anyhow::anyhow!("{deploy_code_segment} code LLVM IR generator: {error}")
                     })?;
                 let deploy_build = deploy_context.build(
-                    output_assembly,
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+                    ),
                     output_bytecode,
                     deploy_code_libraries,
                 )?;
@@ -193,14 +198,14 @@ impl Contract {
                     deploy_code_segment,
                     None,
                     deploy_code_dependecies,
-                    deploy_build.unlinked_symbols,
+                    deploy_build.unlinked_symbols.unwrap_or_default(),
                     deploy_build.warnings,
                 );
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    Some(deploy_object),
-                    Some(runtime_object),
+                    deploy_object,
+                    runtime_object,
                     metadata,
                 ))
             }
@@ -245,7 +250,11 @@ impl Contract {
                         anyhow::anyhow!("{runtime_code_segment} code LLVM IR generator: {error}")
                     })?;
                 let runtime_build = runtime_context.build(
-                    output_assembly,
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+                    ),
                     output_bytecode,
                     runtime_code_libraries,
                 )?;
@@ -258,7 +267,7 @@ impl Contract {
                     runtime_code_segment,
                     metadata_bytes,
                     runtime_code_dependecies,
-                    runtime_build.unlinked_symbols,
+                    runtime_build.unlinked_symbols.unwrap_or_default(),
                     runtime_build.warnings,
                 );
 
@@ -285,7 +294,11 @@ impl Contract {
                         anyhow::anyhow!("{deploy_code_segment} code LLVM IR generator: {error}")
                     })?;
                 let deploy_build = deploy_context.build(
-                    output_assembly,
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+                    ),
                     output_bytecode,
                     deploy_code_libraries,
                 )?;
@@ -298,14 +311,14 @@ impl Contract {
                     deploy_code_segment,
                     None,
                     deploy_code_dependencies,
-                    deploy_build.unlinked_symbols,
+                    deploy_build.unlinked_symbols.unwrap_or_default(),
                     deploy_build.warnings,
                 );
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    Some(deploy_object),
-                    Some(runtime_object),
+                    deploy_object,
+                    runtime_object,
                     metadata,
                 ))
             }
@@ -355,8 +368,15 @@ impl Contract {
                     optimizer.clone(),
                     debug_config.clone(),
                 );
-                let runtime_build =
-                    runtime_context.build(output_assembly, output_bytecode, BTreeSet::new())?;
+                let runtime_build = runtime_context.build(
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+                    ),
+                    output_bytecode,
+                    BTreeSet::new(),
+                )?;
                 let runtime_object = EVMContractObject::new(
                     runtime_code_identifier,
                     self.name.clone(),
@@ -366,7 +386,7 @@ impl Contract {
                     runtime_code_segment,
                     metadata_bytes,
                     runtime_code_dependencies,
-                    runtime_build.unlinked_symbols,
+                    runtime_build.unlinked_symbols.unwrap_or_default(),
                     runtime_build.warnings,
                 );
 
@@ -382,8 +402,15 @@ impl Contract {
                     optimizer,
                     debug_config,
                 );
-                let deploy_build =
-                    deploy_context.build(output_assembly, output_bytecode, BTreeSet::new())?;
+                let deploy_build = deploy_context.build(
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+                    ),
+                    output_bytecode,
+                    BTreeSet::new(),
+                )?;
                 let deploy_object = EVMContractObject::new(
                     deploy_code_identifier,
                     self.name.clone(),
@@ -393,31 +420,17 @@ impl Contract {
                     deploy_code_segment,
                     None,
                     deploy_code_dependencies,
-                    deploy_build.unlinked_symbols,
+                    deploy_build.unlinked_symbols.unwrap_or_default(),
                     deploy_build.warnings,
                 );
 
                 Ok(EVMContractBuild::new(
                     self.name,
-                    Some(deploy_object),
-                    Some(runtime_object),
+                    deploy_object,
+                    runtime_object,
                     metadata,
                 ))
             }
         }
-    }
-
-    ///
-    /// Get the list of unlinked deployable libraries.
-    ///
-    pub fn get_unlinked_libraries(
-        &self,
-        deployed_libraries: &BTreeSet<String>,
-    ) -> BTreeSet<String> {
-        self.ir
-            .get_unlinked_libraries()
-            .into_iter()
-            .filter(|library| !deployed_libraries.contains(library))
-            .collect::<BTreeSet<String>>()
     }
 }

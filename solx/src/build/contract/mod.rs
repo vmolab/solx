@@ -4,6 +4,7 @@
 
 pub mod object;
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -18,9 +19,9 @@ pub struct Contract {
     /// The contract name.
     pub name: era_compiler_common::ContractName,
     /// The deploy code object.
-    pub deploy_object: Option<Object>,
+    pub deploy_object: Object,
     /// The runtime code object.
-    pub runtime_object: Option<Object>,
+    pub runtime_object: Object,
     /// The combined `solc` and `solx` metadata.
     pub metadata: Option<String>,
 }
@@ -31,8 +32,8 @@ impl Contract {
     ///
     pub fn new(
         name: era_compiler_common::ContractName,
-        deploy_object: Option<Object>,
-        runtime_object: Option<Object>,
+        deploy_object: Object,
+        runtime_object: Object,
         metadata: Option<String>,
     ) -> Self {
         Self {
@@ -48,24 +49,29 @@ impl Contract {
     ///
     pub fn write_to_terminal(
         mut self,
-        path: String,
-        output_bytecode: bool,
-        output_assembly: bool,
-        output_metadata: bool,
+        output_selection: &solx_standard_json::InputSelection,
     ) -> anyhow::Result<()> {
-        writeln!(std::io::stdout(), "\n======= {path} =======")?;
+        writeln!(
+            std::io::stdout(),
+            "\n======= {} =======",
+            self.name.full_path
+        )?;
 
-        if output_bytecode {
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::BytecodeObject,
+        ) {
             let mut deploy_bytecode_hex = self
                 .deploy_object
-                .as_mut()
-                .and_then(|object| object.bytecode_hex.take())
+                .bytecode_hex
+                .take()
                 .expect("Always exists");
 
             let runtime_bytecode_hex = self
                 .runtime_object
-                .as_mut()
-                .and_then(|object| object.bytecode_hex.take())
+                .bytecode_hex
+                .take()
                 .expect("Always exists");
             if deploy_bytecode_hex.len() > runtime_bytecode_hex.len() {
                 deploy_bytecode_hex
@@ -76,22 +82,28 @@ impl Contract {
             writeln!(std::io::stdout(), "Binary:\n{deploy_bytecode_hex}")?;
         }
 
-        if output_assembly {
-            let deploy_assembly = self
-                .deploy_object
-                .as_mut()
-                .and_then(|object| object.assembly.take())
-                .expect("Always exists");
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+        ) {
+            let deploy_assembly = self.deploy_object.assembly.take().expect("Always exists");
             writeln!(std::io::stdout(), "Deploy assembly:\n{deploy_assembly}")?;
-            let runtime_assembly = self
-                .runtime_object
-                .as_mut()
-                .and_then(|object| object.assembly.take())
-                .expect("Always exists");
+        }
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+        ) {
+            let runtime_assembly = self.runtime_object.assembly.take().expect("Always exists");
             writeln!(std::io::stdout(), "Runtime assembly:\n{runtime_assembly}")?;
         }
 
-        if output_metadata {
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::Metadata,
+        ) {
             writeln!(
                 std::io::stdout(),
                 "Metadata:\n{}",
@@ -108,12 +120,10 @@ impl Contract {
     pub fn write_to_directory(
         mut self,
         output_path: &Path,
+        output_selection: &solx_standard_json::InputSelection,
         overwrite: bool,
-        output_bytecode: bool,
-        output_assembly: bool,
-        output_metadata: bool,
     ) -> anyhow::Result<()> {
-        let file_path = PathBuf::from(self.name.path);
+        let file_path = PathBuf::from(self.name.path.as_str());
         let file_name = file_path
             .file_name()
             .expect("Always exists")
@@ -124,7 +134,11 @@ impl Contract {
         output_path.push(file_name);
         std::fs::create_dir_all(output_path.as_path())?;
 
-        if output_bytecode {
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::BytecodeObject,
+        ) {
             let output_name = format!(
                 "{}.{}",
                 self.name.name.as_deref().unwrap_or(file_name),
@@ -140,14 +154,14 @@ impl Contract {
             } else {
                 let mut deploy_bytecode_hex = self
                     .deploy_object
-                    .as_mut()
-                    .and_then(|object| object.bytecode_hex.take())
+                    .bytecode_hex
+                    .take()
                     .expect("Always exists");
 
                 let runtime_bytecode_hex = self
                     .runtime_object
-                    .as_mut()
-                    .and_then(|object| object.bytecode_hex.take())
+                    .bytecode_hex
+                    .take()
                     .expect("Always exists");
                 if deploy_bytecode_hex.len() > runtime_bytecode_hex.len() {
                     deploy_bytecode_hex
@@ -160,14 +174,17 @@ impl Contract {
             }
         }
 
-        if output_assembly {
-            for (object, code_segment) in
-                [self.deploy_object.as_mut(), self.runtime_object.as_mut()]
-                    .iter_mut()
-                    .zip([
-                        era_compiler_common::CodeSegment::Deploy,
-                        era_compiler_common::CodeSegment::Runtime,
-                    ])
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+        ) {
+            for (object, code_segment) in [&mut self.deploy_object, &mut self.runtime_object]
+                .iter_mut()
+                .zip([
+                    era_compiler_common::CodeSegment::Deploy,
+                    era_compiler_common::CodeSegment::Runtime,
+                ])
             {
                 let output_name = format!(
                     "{}{}.{}",
@@ -186,10 +203,7 @@ impl Contract {
                         "Refusing to overwrite an existing file {output_path:?} (use --overwrite to force)."
                     );
                 } else {
-                    let assembly = object
-                        .as_mut()
-                        .and_then(|object| object.assembly.take())
-                        .expect("Always exists");
+                    let assembly = object.assembly.take().expect("Always exists");
                     std::fs::write(output_path.as_path(), assembly).map_err(|error| {
                         anyhow::anyhow!("File {output_path:?} writing: {error}")
                     })?;
@@ -197,7 +211,11 @@ impl Contract {
             }
         }
 
-        if output_metadata {
+        if output_selection.check_selection(
+            self.name.path.as_str(),
+            self.name.name.as_deref(),
+            solx_standard_json::InputSelector::Metadata,
+        ) {
             let output_name = format!(
                 "{}_meta.{}",
                 self.name.name.as_deref().unwrap_or(file_name),
@@ -225,47 +243,150 @@ impl Contract {
     pub fn write_to_standard_json(
         self,
         standard_json_contract: &mut solx_standard_json::OutputContract,
-    ) -> anyhow::Result<()> {
-        standard_json_contract.metadata = self.metadata;
+        output_selection: &solx_standard_json::InputSelection,
+    ) {
+        standard_json_contract.metadata = self.metadata.filter(|_| {
+            output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::Metadata,
+            )
+        });
 
         let evm = standard_json_contract
             .evm
             .get_or_insert_with(solx_standard_json::OutputContractEVM::default);
-        evm.deployed_bytecode = self.runtime_object.map(|object| {
-            solx_standard_json::OutputContractEVMBytecode::new(
-                object.bytecode_hex,
-                object.assembly,
-                None,
-                None,
-                object.unlinked_symbols,
-                None,
-            )
-        });
-        evm.bytecode = self.deploy_object.map(|object| {
-            solx_standard_json::OutputContractEVMBytecode::new(
-                object.bytecode_hex,
-                object.assembly,
-                None,
-                None,
-                object.unlinked_symbols,
-                None,
-            )
-        });
-        if let (Some(deploy_bytecode_object), Some(runtime_bytecode_object)) = (
-            evm.bytecode
-                .as_mut()
-                .and_then(|bytecode| bytecode.object.as_mut()),
-            evm.deployed_bytecode
-                .as_ref()
-                .and_then(|bytecode| bytecode.object.as_ref()),
-        ) {
-            if deploy_bytecode_object.len() > runtime_bytecode_object.len() {
-                deploy_bytecode_object
-                    .truncate(deploy_bytecode_object.len() - runtime_bytecode_object.len());
-                deploy_bytecode_object.push_str(runtime_bytecode_object.as_str());
-            }
-        }
-
-        Ok(())
+        evm.bytecode = Some(solx_standard_json::OutputContractEVMBytecode::new(
+            self.deploy_object.bytecode_hex.filter(|_| {
+                output_selection.check_selection(
+                    self.name.path.as_str(),
+                    self.name.name.as_deref(),
+                    solx_standard_json::InputSelector::BytecodeObject,
+                )
+            }),
+            self.deploy_object.assembly.filter(|_| {
+                output_selection.check_selection(
+                    self.name.path.as_str(),
+                    self.name.name.as_deref(),
+                    solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+                )
+            }),
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::BytecodeLinkReferences,
+            ) {
+                Some(self.deploy_object.unlinked_symbols)
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::BytecodeOpcodes,
+            ) {
+                Some(String::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::BytecodeSourceMap,
+            ) {
+                Some(String::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::BytecodeGeneratedSources,
+            ) {
+                Some(Vec::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::BytecodeFunctionDebugData,
+            ) {
+                Some(BTreeMap::new())
+            } else {
+                None
+            },
+            None,
+        ));
+        evm.deployed_bytecode = Some(solx_standard_json::OutputContractEVMBytecode::new(
+            self.runtime_object.bytecode_hex.filter(|_| {
+                output_selection.check_selection(
+                    self.name.path.as_str(),
+                    self.name.name.as_deref(),
+                    solx_standard_json::InputSelector::RuntimeBytecodeObject,
+                )
+            }),
+            self.runtime_object.assembly.filter(|_| {
+                output_selection.check_selection(
+                    self.name.path.as_str(),
+                    self.name.name.as_deref(),
+                    solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+                )
+            }),
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeLinkReferences,
+            ) {
+                Some(self.runtime_object.unlinked_symbols)
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeOpcodes,
+            ) {
+                Some(String::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeSourceMap,
+            ) {
+                Some(String::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeGeneratedSources,
+            ) {
+                Some(Vec::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeFunctionDebugData,
+            ) {
+                Some(BTreeMap::new())
+            } else {
+                None
+            },
+            if output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::RuntimeBytecodeImmutableReferences,
+            ) {
+                Some(serde_json::json!({}))
+            } else {
+                None
+            },
+        ));
     }
 }

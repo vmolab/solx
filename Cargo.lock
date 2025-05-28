@@ -1524,7 +1524,6 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.12",
- "zkevm_opcode_defs",
 ]
 
 [[package]]

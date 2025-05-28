@@ -20,6 +20,12 @@ pub struct Selection {
 }
 
 impl Selection {
+    /// Wildcard selection.
+    pub const WILDCARD: &'static str = "*";
+
+    /// Any contract selection, used for file-level AST.
+    pub const ANY_CONTRACT: &'static str = "";
+
     ///
     /// A shortcut constructor.
     ///
@@ -35,49 +41,68 @@ impl Selection {
         per_contract_selectors.remove(&Selector::AST);
 
         if !per_file_selectors.is_empty() {
-            contract_level.insert("".to_owned(), per_file_selectors);
+            contract_level.insert(Self::ANY_CONTRACT.to_owned(), per_file_selectors);
         }
         if !per_contract_selectors.is_empty() {
-            contract_level.insert("*".to_owned(), per_contract_selectors);
+            contract_level.insert(Self::WILDCARD.to_owned(), per_contract_selectors);
         }
         if !contract_level.is_empty() {
-            file_level.insert("*".to_owned(), contract_level);
+            file_level.insert(Self::WILDCARD.to_owned(), contract_level);
         }
         Self { inner: file_level }
-    }
-
-    ///
-    /// A shortcut constructor for compilation.
-    ///
-    pub fn new_compilation(bytecode: bool, metadata: bool, via_ir: Option<bool>) -> Self {
-        let mut selectors = BTreeSet::new();
-        if bytecode {
-            selectors.insert(Selector::Bytecode);
-            selectors.insert(Selector::RuntimeBytecode);
-        }
-        if metadata {
-            selectors.insert(Selector::Metadata);
-        }
-        if let Some(via_ir) = via_ir {
-            selectors.insert(via_ir.into());
-        }
-        Self::new(selectors)
     }
 
     ///
     /// Checks if the output element of the specified contract is selected.
     ///
     pub fn check_selection(&self, path: &str, name: Option<&str>, selector: Selector) -> bool {
-        if let Some(file) = self.inner.get("*").or(self.inner.get(path)) {
-            if let (Some(any), selector @ Selector::AST) = (file.get(""), selector) {
-                return any.contains(&selector);
+        if let Some(file) = self.inner.get(Self::WILDCARD).or(self.inner.get(path)) {
+            if let (Some(any), selector @ Selector::AST) = (file.get(Self::ANY_CONTRACT), selector)
+            {
+                return any.contains(&Selector::Any) || any.contains(&selector);
             }
-            if let Some(name) = name {
-                if let Some(contract) = file.get("*").or(file.get(name)) {
-                    return contract.contains(&selector);
+            if let Some(contract) = file
+                .get(Self::WILDCARD)
+                .or(name.and_then(|name| file.get(name)))
+            {
+                match selector {
+                    Selector::MethodIdentifiers | Selector::EVMLA
+                        if contract.contains(&Selector::EVM) =>
+                    {
+                        return true
+                    }
+                    Selector::BytecodeObject
+                    | Selector::BytecodeLLVMAssembly
+                    | Selector::BytecodeOpcodes
+                    | Selector::BytecodeLinkReferences
+                    | Selector::BytecodeSourceMap
+                    | Selector::BytecodeFunctionDebugData
+                    | Selector::BytecodeGeneratedSources
+                        if contract.contains(&Selector::Bytecode)
+                            || contract.contains(&Selector::EVM) =>
+                    {
+                        return true
+                    }
+                    Selector::RuntimeBytecodeObject
+                    | Selector::RuntimeBytecodeLLVMAssembly
+                    | Selector::RuntimeBytecodeOpcodes
+                    | Selector::RuntimeBytecodeLinkReferences
+                    | Selector::RuntimeBytecodeImmutableReferences
+                    | Selector::RuntimeBytecodeSourceMap
+                    | Selector::RuntimeBytecodeFunctionDebugData
+                    | Selector::RuntimeBytecodeGeneratedSources
+                        if contract.contains(&Selector::RuntimeBytecode)
+                            || contract.contains(&Selector::EVM) =>
+                    {
+                        return true
+                    }
+                    selector
+                        if contract.contains(&Selector::Any) || contract.contains(&selector) =>
+                    {
+                        return true
+                    }
+                    _ => {}
                 }
-            } else {
-                return true;
             }
         }
         false
@@ -88,8 +113,34 @@ impl Selection {
     ///
     pub fn set_selector(&mut self, selector: Selector) {
         for file in self.inner.values_mut() {
+            match selector {
+                Selector::AST => {
+                    file.entry(Self::ANY_CONTRACT.to_owned())
+                        .or_default()
+                        .insert(selector);
+                }
+                selector => {
+                    for (name, contract) in file.iter_mut() {
+                        if name == Self::ANY_CONTRACT {
+                            continue;
+                        }
+                        contract.insert(selector);
+                    }
+                }
+            }
+        }
+    }
+
+    ///
+    /// Normalizes the selection by converting multi-item selectors into single-item selectors.
+    ///
+    pub fn normalize(&mut self) {
+        for file in self.inner.values_mut() {
             for contract in file.values_mut() {
-                contract.insert(selector);
+                *contract = contract
+                    .iter()
+                    .flat_map(|selector| selector.into_single_selectors())
+                    .collect::<BTreeSet<_>>();
             }
         }
     }
@@ -106,12 +157,18 @@ impl Selection {
     }
 
     ///
-    /// Checks if the output element is requested for at least one contract.
+    /// Checks if the bytecode is requested for at least one contract.
     ///
-    pub fn is_set_for_any(&self, selector: Selector) -> bool {
+    pub fn is_bytecode_set_for_any(&self) -> bool {
         for file in self.inner.values() {
             for contract in file.values() {
-                if contract.contains(&selector) {
+                if contract.contains(&Selector::EVM)
+                    || contract.contains(&Selector::Bytecode)
+                    || contract.contains(&Selector::BytecodeObject)
+                    || contract.contains(&Selector::RuntimeBytecode)
+                    || contract.contains(&Selector::RuntimeBytecodeObject)
+                    || contract.contains(&Selector::Any)
+                {
                     return true;
                 }
             }
