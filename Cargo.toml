@@ -14,3 +14,6 @@ authors = [
 ]
 edition = "2021"
 version = "0.1.0-alpha.4"
+
+[patch."https://github.com/matter-labs/era-compiler-llvm-context"]
+era-compiler-llvm-context = { package = "era-compiler-llvm-context", path = "../era-compiler-llvm-context" }
