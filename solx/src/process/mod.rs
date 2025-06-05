@@ -78,7 +78,8 @@ where
     let mut command = Command::new(executable.as_path());
     command.stdin(std::process::Stdio::piped());
     command.stdout(std::process::Stdio::piped());
-    command.stderr(std::process::Stdio::piped());
+    // Disabled for debugging purpose
+    // command.stderr(std::process::Stdio::piped());
     command.arg("--recursive-process");
     command.arg(path);
 
