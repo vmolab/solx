@@ -20,3 +20,6 @@
 
 # Test solc versions
 **/solc-bin/
+
+# Clangd cache
+.cache/
