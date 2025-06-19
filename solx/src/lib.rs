@@ -316,8 +316,6 @@ pub fn standard_json_evm(
 
     let (mut solc_output, project) = match language {
         solx_standard_json::InputLanguage::Solidity => {
-            // eprintln!("INPUT: {solc_input:?}");
-
             let mut solc_output = solc_compiler.standard_json(
                 &mut solc_input,
                 messages,
@@ -329,8 +327,6 @@ pub fn standard_json_evm(
             if solc_output.has_errors() {
                 solc_output.write_and_exit(&solc_input.settings.output_selection);
             }
-
-            // eprintln!("OUTPUT: {solc_output:?}");
 
             let project = Project::try_from_solc_output(
                 solc_input.settings.libraries,

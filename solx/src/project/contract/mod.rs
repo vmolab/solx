@@ -136,8 +136,6 @@ impl Contract {
 
         match self.ir {
             IR::Yul(mut deploy_code) => {
-                eprintln!("===YUL===");
-
                 let runtime_code = deploy_code.take_runtime_code().ok_or_else(|| {
                     anyhow::anyhow!("Contract `{identifier}` has no runtime code")
                 })?;
@@ -244,8 +242,6 @@ impl Contract {
                 ))
             }
             IR::EVMLegacyAssembly(mut deploy_code) => {
-                eprintln!("===EVM===");
-
                 let mut runtime_code_assembly = deploy_code.assembly.runtime_code()?.to_owned();
                 runtime_code_assembly.set_full_path(deploy_code.assembly.full_path().to_owned());
 
@@ -352,8 +348,6 @@ impl Contract {
                 ))
             }
             IR::LLVMIR(mut runtime_llvm_ir) => {
-                eprintln!("===LLVM===");
-
                 let deploy_code_identifier = self.name.full_path.to_owned();
                 let runtime_code_identifier =
                     format!("{}.{runtime_code_segment}", self.name.full_path);
