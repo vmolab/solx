@@ -1,10 +1,10 @@
 [submodule "llvm"]
 	path = llvm
-	url = https://github.com/matter-labs/era-compiler-llvm
-	branch = main
+	url = https://github.com/vmolab/era-compiler-llvm
+	branch = cogas-0.1.0-alpha.4
 	update = none
 [submodule "era-solidity"]
 	path = era-solidity
-	url = https://github.com/matter-labs/era-solidity
-	branch = 0.8.30-1.0.2
+	url = git@github.com:vmolab/era-solidity.git
+	branch = cogas-0.1.0-alpha.4
 	update = none
