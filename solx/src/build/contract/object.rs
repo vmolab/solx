@@ -3,13 +3,14 @@
 //!
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 ///
 /// Bytecode object.
 ///
 /// Can be either deploy and runtime code.
 ///
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Object {
     /// Object identifier.
     pub identifier: String,
@@ -27,6 +28,8 @@ pub struct Object {
     pub code_segment: era_compiler_common::CodeSegment,
     /// The metadata bytes. Only appended to runtime code.
     pub metadata_bytes: Option<Vec<u8>>,
+    /// Immutables of the runtime code.
+    pub immutables: Option<BTreeMap<String, BTreeSet<u64>>>,
     /// Dependencies.
     pub dependencies: solx_yul::Dependencies,
     /// The unlinked symbols, such as libraries.
@@ -51,6 +54,7 @@ impl Object {
         bytecode: Option<Vec<u8>>,
         via_ir: bool,
         code_segment: era_compiler_common::CodeSegment,
+        immutables: Option<BTreeMap<String, BTreeSet<u64>>>,
         metadata_bytes: Option<Vec<u8>>,
         dependencies: solx_yul::Dependencies,
         warnings: Vec<era_compiler_llvm_context::EVMWarning>,
@@ -64,6 +68,7 @@ impl Object {
             bytecode_hex,
             via_ir,
             code_segment,
+            immutables,
             metadata_bytes,
             dependencies,
             unlinked_symbols: BTreeMap::new(),

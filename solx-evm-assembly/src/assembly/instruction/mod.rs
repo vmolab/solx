@@ -19,6 +19,7 @@ pub struct Instruction {
     /// The opcode or tag identifier.
     pub name: Name,
     /// The optional value argument.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
 
     /// The source code identifier.
@@ -40,6 +41,9 @@ impl Instruction {
 
             Name::JUMP => 1,
             Name::JUMPI => 2,
+
+            Name::DUPX => 1,
+            Name::SWAPX => 1,
 
             Name::ADD => 2,
             Name::SUB => 2,
@@ -191,6 +195,7 @@ impl Instruction {
             Name::DUP14 => 1,
             Name::DUP15 => 1,
             Name::DUP16 => 1,
+            Name::DUPX => 1,
 
             Name::ADD => 1,
             Name::SUB => 1,
@@ -376,8 +381,8 @@ impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = self.name.to_string();
         match self.name {
-            Name::Tag => write!(f, "{:4}", name),
-            _ => write!(f, "{:20}", name),
+            Name::Tag => write!(f, "{name:4}"),
+            _ => write!(f, "{name:20}"),
         }?;
         match self.value {
             Some(ref value) if value.len() <= 64 => write!(f, "{value}")?,

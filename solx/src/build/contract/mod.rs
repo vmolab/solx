@@ -16,14 +16,14 @@ use self::object::Object;
 ///
 /// The Solidity contract build.
 ///
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Contract {
     /// The contract name.
     pub name: era_compiler_common::ContractName,
-    /// The deploy code object.
-    pub deploy_object: Object,
+    /// The deploy code object compilation result.
+    pub deploy_object_result: crate::Result<Object>,
     /// The runtime code object.
-    pub runtime_object: Object,
+    pub runtime_object_result: crate::Result<Object>,
     /// The combined `solc` and `solx` metadata.
     pub metadata: Option<String>,
     /// The solc ABI.
@@ -50,23 +50,31 @@ impl Contract {
     ///
     pub fn new(
         name: era_compiler_common::ContractName,
-        deploy_object: Object,
-        runtime_object: Object,
+        deploy_object_result: crate::Result<Object>,
+        runtime_object_result: crate::Result<Object>,
         metadata: Option<String>,
+        abi: Option<serde_json::Value>,
+        method_identifiers: Option<BTreeMap<String, String>>,
+        userdoc: Option<serde_json::Value>,
+        devdoc: Option<serde_json::Value>,
+        storage_layout: Option<serde_json::Value>,
+        transient_storage_layout: Option<serde_json::Value>,
+        legacy_assembly: Option<solx_evm_assembly::Assembly>,
+        ir_optimized: Option<String>,
     ) -> Self {
         Self {
             name,
-            deploy_object,
-            runtime_object,
+            deploy_object_result,
+            runtime_object_result,
             metadata,
-            abi: None,
-            method_identifiers: None,
-            userdoc: None,
-            devdoc: None,
-            storage_layout: None,
-            transient_storage_layout: None,
-            legacy_assembly: None,
-            ir_optimized: None,
+            abi,
+            method_identifiers,
+            userdoc,
+            devdoc,
+            storage_layout,
+            transient_storage_layout,
+            legacy_assembly,
+            ir_optimized,
         }
     }
 
@@ -97,7 +105,13 @@ impl Contract {
             self.name.name.as_deref(),
             solx_standard_json::InputSelector::BytecodeLLVMAssembly,
         ) {
-            let deploy_assembly = self.deploy_object.assembly.take().expect("Always exists");
+            let deploy_assembly = self
+                .deploy_object_result
+                .as_mut()
+                .expect("Always exists")
+                .assembly
+                .take()
+                .expect("Always exists");
             writeln!(
                 std::io::stdout(),
                 "Deploy LLVM EVM assembly:\n{deploy_assembly}"
@@ -108,7 +122,13 @@ impl Contract {
             self.name.name.as_deref(),
             solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
         ) {
-            let runtime_assembly = self.runtime_object.assembly.take().expect("Always exists");
+            let runtime_assembly = self
+                .runtime_object_result
+                .as_mut()
+                .expect("Always exists")
+                .assembly
+                .take()
+                .expect("Always exists");
             writeln!(
                 std::io::stdout(),
                 "Runtime LLVM EVM assembly:\n{runtime_assembly}"
@@ -121,7 +141,9 @@ impl Contract {
             solx_standard_json::InputSelector::BytecodeObject,
         ) {
             let bytecode_hex = self
-                .deploy_object
+                .deploy_object_result
+                .as_mut()
+                .expect("Always exists")
                 .bytecode_hex
                 .take()
                 .expect("Always exists");
@@ -133,7 +155,9 @@ impl Contract {
             solx_standard_json::InputSelector::RuntimeBytecodeObject,
         ) {
             let bytecode_hex = self
-                .runtime_object
+                .runtime_object_result
+                .as_mut()
+                .expect("Always exists")
                 .bytecode_hex
                 .take()
                 .expect("Always exists");
@@ -278,7 +302,9 @@ impl Contract {
             output_path.push(output_name.as_str());
 
             let bytecode_hex = self
-                .deploy_object
+                .deploy_object_result
+                .as_mut()
+                .expect("Always exists")
                 .bytecode_hex
                 .take()
                 .expect("Always exists");
@@ -299,7 +325,9 @@ impl Contract {
             output_path.push(output_name.as_str());
 
             let bytecode_hex = self
-                .runtime_object
+                .runtime_object_result
+                .as_mut()
+                .expect("Always exists")
                 .bytecode_hex
                 .take()
                 .expect("Always exists");
@@ -311,13 +339,15 @@ impl Contract {
             self.name.name.as_deref(),
             solx_standard_json::InputSelector::BytecodeLLVMAssembly,
         ) {
-            for (object, code_segment) in [&mut self.deploy_object, &mut self.runtime_object]
-                .iter_mut()
-                .zip([
-                    era_compiler_common::CodeSegment::Deploy,
-                    era_compiler_common::CodeSegment::Runtime,
-                ])
-            {
+            for (object, code_segment) in [
+                &mut self.deploy_object_result?,
+                &mut self.runtime_object_result?,
+            ]
+            .iter_mut()
+            .zip([
+                era_compiler_common::CodeSegment::Deploy,
+                era_compiler_common::CodeSegment::Runtime,
+            ]) {
                 let output_name = format!(
                     "{contract_path}_{}_llvm.{}{}",
                     self.name.name.as_deref().unwrap_or(contract_name),
@@ -497,99 +527,140 @@ impl Contract {
     /// Writes the contract text assembly and bytecode to the standard JSON.
     ///
     pub fn write_to_standard_json(
-        self,
+        &mut self,
         standard_json_contract: &mut solx_standard_json::OutputContract,
         output_selection: &solx_standard_json::InputSelection,
+        is_bytecode_linked: bool,
     ) {
-        standard_json_contract.metadata = self.metadata.filter(|_| {
+        if let Some(value) = self.metadata.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::Metadata,
             )
-        });
-        standard_json_contract.abi = self.abi.filter(|_| {
+        }) {
+            standard_json_contract.metadata = Some(value);
+        }
+        if let Some(value) = self.abi.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::ABI,
             )
-        });
-        standard_json_contract.userdoc = self.userdoc.filter(|_| {
+        }) {
+            standard_json_contract.abi = Some(value);
+        }
+        if let Some(value) = self.userdoc.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::UserDocumentation,
             )
-        });
-        standard_json_contract.devdoc = self.devdoc.filter(|_| {
+        }) {
+            standard_json_contract.userdoc = Some(value);
+        }
+        if let Some(value) = self.devdoc.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::DeveloperDocumentation,
             )
-        });
-        standard_json_contract.storage_layout = self.storage_layout.filter(|_| {
+        }) {
+            standard_json_contract.devdoc = Some(value);
+        }
+        if let Some(value) = self.storage_layout.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::StorageLayout,
             )
-        });
-        standard_json_contract.transient_storage_layout =
-            self.transient_storage_layout.filter(|_| {
-                output_selection.check_selection(
-                    self.name.path.as_str(),
-                    self.name.name.as_deref(),
-                    solx_standard_json::InputSelector::TransientStorageLayout,
-                )
-            });
-        standard_json_contract.ir_optimized = self.ir_optimized.filter(|_| {
+        }) {
+            standard_json_contract.storage_layout = Some(value);
+        }
+        if let Some(value) = self.transient_storage_layout.take().filter(|_| {
+            output_selection.check_selection(
+                self.name.path.as_str(),
+                self.name.name.as_deref(),
+                solx_standard_json::InputSelector::TransientStorageLayout,
+            )
+        }) {
+            standard_json_contract.transient_storage_layout = Some(value);
+        }
+        if let Some(value) = self.ir_optimized.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::Yul,
             )
-        });
+        }) {
+            standard_json_contract.ir_optimized = Some(value);
+        }
 
         let evm = standard_json_contract
             .evm
             .get_or_insert_with(solx_standard_json::OutputContractEVM::default);
-        evm.method_identifiers = self.method_identifiers.filter(|_| {
+        if let Some(value) = self.method_identifiers.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::MethodIdentifiers,
             )
-        });
-        evm.legacy_assembly = self.legacy_assembly.filter(|_| {
+        }) {
+            evm.method_identifiers = Some(value);
+        }
+        if let Some(value) = self.legacy_assembly.take().filter(|_| {
             output_selection.check_selection(
                 self.name.path.as_str(),
                 self.name.name.as_deref(),
                 solx_standard_json::InputSelector::EVMLegacyAssembly,
             )
-        });
+        }) {
+            evm.legacy_assembly = Some(value);
+        }
+
         evm.bytecode = Some(solx_standard_json::OutputContractEVMBytecode::new(
-            self.deploy_object.bytecode_hex.filter(|_| {
-                output_selection.check_selection(
+            if is_bytecode_linked {
+                self.deploy_object_result
+                    .as_mut()
+                    .expect("Always exists")
+                    .bytecode_hex
+                    .take()
+                    .filter(|_| {
+                        output_selection.check_selection(
+                            self.name.path.as_str(),
+                            self.name.name.as_deref(),
+                            solx_standard_json::InputSelector::BytecodeObject,
+                        )
+                    })
+            } else {
+                None
+            },
+            self.deploy_object_result
+                .as_mut()
+                .expect("Always exists")
+                .assembly
+                .take()
+                .filter(|_| {
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::BytecodeLLVMAssembly,
+                    )
+                }),
+            if is_bytecode_linked
+                && output_selection.check_selection(
                     self.name.path.as_str(),
                     self.name.name.as_deref(),
-                    solx_standard_json::InputSelector::BytecodeObject,
+                    solx_standard_json::InputSelector::BytecodeLinkReferences,
                 )
-            }),
-            self.deploy_object.assembly.filter(|_| {
-                output_selection.check_selection(
-                    self.name.path.as_str(),
-                    self.name.name.as_deref(),
-                    solx_standard_json::InputSelector::BytecodeLLVMAssembly,
-                )
-            }),
-            if output_selection.check_selection(
-                self.name.path.as_str(),
-                self.name.name.as_deref(),
-                solx_standard_json::InputSelector::BytecodeLinkReferences,
-            ) {
-                Some(self.deploy_object.unlinked_symbols)
+            {
+                Some(std::mem::take(
+                    &mut self
+                        .deploy_object_result
+                        .as_mut()
+                        .expect("Always exists")
+                        .unlinked_symbols,
+                ))
             } else {
                 None
             },
@@ -631,27 +702,50 @@ impl Contract {
             },
             None,
         ));
+
         evm.deployed_bytecode = Some(solx_standard_json::OutputContractEVMBytecode::new(
-            self.runtime_object.bytecode_hex.filter(|_| {
-                output_selection.check_selection(
+            if is_bytecode_linked {
+                self.runtime_object_result
+                    .as_mut()
+                    .expect("Always exists")
+                    .bytecode_hex
+                    .take()
+                    .filter(|_| {
+                        output_selection.check_selection(
+                            self.name.path.as_str(),
+                            self.name.name.as_deref(),
+                            solx_standard_json::InputSelector::RuntimeBytecodeObject,
+                        )
+                    })
+            } else {
+                panic!()
+            },
+            self.runtime_object_result
+                .as_mut()
+                .expect("Always exists")
+                .assembly
+                .take()
+                .filter(|_| {
+                    output_selection.check_selection(
+                        self.name.path.as_str(),
+                        self.name.name.as_deref(),
+                        solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
+                    )
+                }),
+            if is_bytecode_linked
+                && output_selection.check_selection(
                     self.name.path.as_str(),
                     self.name.name.as_deref(),
-                    solx_standard_json::InputSelector::RuntimeBytecodeObject,
+                    solx_standard_json::InputSelector::RuntimeBytecodeLinkReferences,
                 )
-            }),
-            self.runtime_object.assembly.filter(|_| {
-                output_selection.check_selection(
-                    self.name.path.as_str(),
-                    self.name.name.as_deref(),
-                    solx_standard_json::InputSelector::RuntimeBytecodeLLVMAssembly,
-                )
-            }),
-            if output_selection.check_selection(
-                self.name.path.as_str(),
-                self.name.name.as_deref(),
-                solx_standard_json::InputSelector::RuntimeBytecodeLinkReferences,
-            ) {
-                Some(self.runtime_object.unlinked_symbols)
+            {
+                Some(std::mem::take(
+                    &mut self
+                        .runtime_object_result
+                        .as_mut()
+                        .expect("Always exists")
+                        .unlinked_symbols,
+                ))
             } else {
                 None
             },

@@ -12,13 +12,15 @@ use rayon::iter::ParallelIterator;
 
 use crate::build::contract::Contract as EVMContractBuild;
 use crate::build::Build as EVMBuild;
+use crate::error::Error;
 use crate::process::input::Input as EVMProcessInput;
-use crate::process::output::Output as EVMOutput;
+use crate::process::output::Output as EVMProcessOutput;
 
 use self::contract::ir::evmla::EVMLegacyAssembly as ContractEVMLegacyAssembly;
 use self::contract::ir::llvm_ir::LLVMIR as ContractLLVMIR;
 use self::contract::ir::yul::Yul as ContractYul;
 use self::contract::ir::IR as ContractIR;
+use self::contract::metadata::Metadata as ContractMetadata;
 use self::contract::Contract;
 
 ///
@@ -373,7 +375,12 @@ impl Project {
 
                 let contract = Contract::new(
                     era_compiler_common::ContractName::new(path.clone(), None),
-                    ContractLLVMIR::new(path.clone(), source_code).into(),
+                    ContractLLVMIR::new(
+                        path.clone(),
+                        era_compiler_common::CodeSegment::Runtime,
+                        source_code,
+                    )
+                    .into(),
                     metadata,
                     None,
                     None,
@@ -418,6 +425,7 @@ impl Project {
         output_selection: &solx_standard_json::InputSelection,
         metadata_hash_type: era_compiler_common::EVMMetadataHashType,
         optimizer_settings: era_compiler_llvm_context::OptimizerSettings,
+        spill_area_size: Option<BTreeMap<String, solx_standard_json::InputOptimizerSpillAreaSize>>,
         llvm_options: Vec<String>,
         debug_config: Option<era_compiler_llvm_context::DebugConfig>,
     ) -> anyhow::Result<EVMBuild> {
@@ -425,6 +433,9 @@ impl Project {
             .contracts
             .into_par_iter()
             .map(|(path, mut contract)| {
+                let contract_name = contract.name.clone();
+
+                let metadata = contract.metadata.take();
                 let abi = contract.abi.take();
                 let method_identifiers = contract.method_identifiers.take();
                 let userdoc = contract.userdoc.take();
@@ -434,31 +445,134 @@ impl Project {
                 let legacy_assembly = contract.legacy_assembly.take();
                 let ir_optimized = contract.ir_optimized.take();
 
-                let input = EVMProcessInput::new(
-                    contract,
-                    self.identifier_paths.clone(),
-                    output_selection.to_owned(),
-                    metadata_hash_type,
-                    optimizer_settings.clone(),
-                    llvm_options.clone(),
-                    debug_config.clone(),
+                let (deploy_code_ir, runtime_code_ir): (ContractIR, ContractIR) = match contract.ir
+                {
+                    ContractIR::Yul(mut deploy_code) => {
+                        let runtime_code: ContractYul =
+                            *deploy_code.runtime_code.take().expect("Always exists");
+                        (deploy_code.into(), runtime_code.into())
+                    }
+                    ContractIR::EVMLegacyAssembly(mut deploy_code) => {
+                        let runtime_code: ContractEVMLegacyAssembly =
+                            *deploy_code.runtime_code.take().expect("Always exists");
+                        (deploy_code.into(), runtime_code.into())
+                    }
+                    ContractIR::LLVMIR(runtime_code) => {
+                        let deploy_code_identifier = contract.name.full_path.to_owned();
+                        let runtime_code_identifier = format!(
+                            "{deploy_code_identifier}.{}",
+                            era_compiler_common::CodeSegment::Runtime
+                        );
+
+                        let deploy_code = ContractLLVMIR::new(
+                            deploy_code_identifier.clone(),
+                            era_compiler_common::CodeSegment::Deploy,
+                            era_compiler_llvm_context::evm_minimal_deploy_code(
+                                deploy_code_identifier.as_str(),
+                                runtime_code_identifier.as_str(),
+                            ),
+                        );
+                        (deploy_code.into(), runtime_code.into())
+                    }
+                };
+
+                let (runtime_object_result, metadata) = {
+                    let metadata = metadata.map(|metadata| {
+                        ContractMetadata::new(optimizer_settings.clone(), llvm_options.as_slice())
+                            .insert_into(metadata.as_str())
+                    });
+                    let metadata_bytes =
+                        metadata
+                            .as_ref()
+                            .and_then(|metadata| match metadata_hash_type {
+                                era_compiler_common::EVMMetadataHashType::None => None,
+                                era_compiler_common::EVMMetadataHashType::IPFS => Some(
+                                    era_compiler_common::IPFSHash::from_slice(metadata.as_bytes())
+                                        .to_vec(),
+                                ),
+                            });
+
+                    let spill_area_size = spill_area_size
+                        .as_ref()
+                        .and_then(|sizes| sizes.get(contract_name.full_path.as_str()));
+                    let mut optimizer_settings = optimizer_settings.clone();
+                    if let Some(spill_area_size) = spill_area_size {
+                        optimizer_settings.set_spill_area_size(spill_area_size.runtime);
+                    }
+                    let input = EVMProcessInput::new(
+                        contract_name.clone(),
+                        runtime_code_ir,
+                        era_compiler_common::CodeSegment::Runtime,
+                        self.identifier_paths.clone(),
+                        output_selection.to_owned(),
+                        None,
+                        metadata_bytes,
+                        optimizer_settings,
+                        llvm_options.clone(),
+                        debug_config.clone(),
+                    );
+                    let mut result: crate::Result<EVMProcessOutput> =
+                        crate::process::call(path.as_str(), input);
+                    if let Err(Error::StackTooDeep(ref mut stack_too_deep)) = result {
+                        stack_too_deep.contract_name = Some(contract_name.clone());
+                        stack_too_deep.code_segment =
+                            Some(era_compiler_common::CodeSegment::Runtime);
+                    }
+                    (result, metadata)
+                };
+
+                let immutables = runtime_object_result
+                    .as_ref()
+                    .ok()
+                    .and_then(|output| output.object.immutables.to_owned());
+                let deploy_object_result = {
+                    let spill_area_size = spill_area_size
+                        .as_ref()
+                        .and_then(|sizes| sizes.get(contract_name.full_path.as_str()));
+                    let mut optimizer_settings = optimizer_settings.clone();
+                    if let Some(spill_area_size) = spill_area_size {
+                        optimizer_settings.set_spill_area_size(spill_area_size.creation);
+                    }
+
+                    let input = EVMProcessInput::new(
+                        contract_name.clone(),
+                        deploy_code_ir,
+                        era_compiler_common::CodeSegment::Deploy,
+                        self.identifier_paths.clone(),
+                        output_selection.to_owned(),
+                        immutables,
+                        None,
+                        optimizer_settings,
+                        llvm_options.clone(),
+                        debug_config.clone(),
+                    );
+                    let mut result: crate::Result<EVMProcessOutput> =
+                        crate::process::call(path.as_str(), input);
+                    if let Err(Error::StackTooDeep(ref mut stack_too_deep)) = result {
+                        stack_too_deep.contract_name = Some(contract_name.clone());
+                        stack_too_deep.code_segment =
+                            Some(era_compiler_common::CodeSegment::Deploy);
+                    }
+                    result
+                };
+
+                let build = EVMContractBuild::new(
+                    contract_name,
+                    deploy_object_result.map(|deploy_code_output| deploy_code_output.object),
+                    runtime_object_result.map(|runtime_code_output| runtime_code_output.object),
+                    metadata,
+                    abi,
+                    method_identifiers,
+                    userdoc,
+                    devdoc,
+                    storage_layout,
+                    transient_storage_layout,
+                    legacy_assembly,
+                    ir_optimized,
                 );
-                let result: crate::Result<EVMOutput> = crate::process::call(path.as_str(), input);
-                let result = result.map(|mut output| {
-                    output.build.abi = abi;
-                    output.build.method_identifiers = method_identifiers;
-                    output.build.userdoc = userdoc;
-                    output.build.devdoc = devdoc;
-                    output.build.storage_layout = storage_layout;
-                    output.build.transient_storage_layout = transient_storage_layout;
-                    output.build.legacy_assembly = legacy_assembly;
-                    output.build.ir_optimized = ir_optimized;
-                    output.build
-                });
-                (path, result)
+                (path, build)
             })
-            .collect::<BTreeMap<String, Result<EVMContractBuild, solx_standard_json::OutputError>>>(
-            );
+            .collect::<BTreeMap<String, EVMContractBuild>>();
 
         Ok(EVMBuild::new(results, self.ast_jsons, messages))
     }

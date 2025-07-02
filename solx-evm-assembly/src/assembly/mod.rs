@@ -28,23 +28,23 @@ use self::instruction::Instruction;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Assembly {
     /// The metadata string.
-    #[serde(rename = ".auxdata")]
+    #[serde(rename = ".auxdata", default, skip_serializing_if = "Option::is_none")]
     pub auxdata: Option<String>,
     /// The deploy code instructions.
-    #[serde(rename = ".code")]
+    #[serde(rename = ".code", default, skip_serializing_if = "Option::is_none")]
     pub code: Option<Vec<Instruction>>,
     /// The runtime code.
-    #[serde(rename = ".data")]
+    #[serde(rename = ".data", default, skip_serializing_if = "Option::is_none")]
     pub data: Option<BTreeMap<String, Data>>,
 
     /// The full contract path.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_path: Option<String>,
     /// The factory dependency paths.
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub factory_dependencies: HashSet<String>,
     /// The EVM legacy assembly extra metadata.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_metadata: Option<ExtraMetadata>,
 }
 
@@ -414,7 +414,7 @@ impl era_compiler_llvm_context::EVMWriteLLVM for Assembly {
         if let Some(debug_config) = context.debug_config() {
             let mut path = full_path.to_owned();
             if let era_compiler_common::CodeSegment::Runtime = code_segment {
-                path.push_str(format!(".{}", code_segment).as_str());
+                path.push_str(format!(".{code_segment}").as_str());
             }
             debug_config.dump_ethir(path.as_str(), ethereal_ir.to_string().as_str())?;
         }
@@ -438,6 +438,13 @@ impl std::fmt::Display for Assembly {
                     InstructionName::Tag => writeln!(f, "{index:03} {instruction}")?,
                     _ => writeln!(f, "{index:03}     {instruction}")?,
                 }
+            }
+        }
+
+        writeln!(f)?;
+        if let Some(data) = self.data.as_ref() {
+            for data in data.values() {
+                writeln!(f, "{data}")?;
             }
         }
 

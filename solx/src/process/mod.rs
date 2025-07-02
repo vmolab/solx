@@ -11,6 +11,9 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::thread::Builder;
 
+use crate::error::Error;
+use crate::project::contract::Contract;
+
 use self::input::Input as EVMInput;
 use self::output::Output as EVMOutput;
 
@@ -27,30 +30,34 @@ pub fn run() -> anyhow::Result<()> {
         .map_err(|error| anyhow::anyhow!("Stdin parsing error: {error}"))?;
 
     let source_location =
-        solx_standard_json::OutputErrorSourceLocation::new(input.contract.name.path.clone());
+        solx_standard_json::OutputErrorSourceLocation::new(input.contract_name.path.clone());
 
     let result = Builder::new()
         .stack_size(crate::WORKER_THREAD_STACK_SIZE)
         .spawn(move || {
-            input
-                .contract
-                .compile_to_evm(
-                    input.identifier_paths,
-                    input.output_selection,
-                    input.metadata_hash_type,
-                    input.optimizer_settings,
-                    input.llvm_options,
-                    input.debug_config,
+            Contract::compile_to_evm(
+                input.contract_name,
+                input.contract_ir,
+                input.code_segment,
+                input.identifier_paths,
+                input.output_selection,
+                input.immutables,
+                input.metadata_bytes,
+                input.optimizer_settings,
+                input.llvm_options,
+                input.debug_config,
+            )
+            .map(EVMOutput::new)
+            .map_err(|error| match error {
+                Error::Generic(error) => solx_standard_json::OutputError::new_error(
+                    None,
+                    error,
+                    Some(source_location),
+                    None,
                 )
-                .map(EVMOutput::new)
-                .map_err(|error| {
-                    solx_standard_json::OutputError::new_error(
-                        None,
-                        error,
-                        Some(source_location),
-                        None,
-                    )
-                })
+                .into(),
+                error => error,
+            })
         })
         .expect("Threading error")
         .join()
@@ -109,14 +116,14 @@ where
             String::from_utf8_lossy(result.stdout.as_slice()),
             String::from_utf8_lossy(result.stderr.as_slice()),
         );
-        return Err(solx_standard_json::OutputError::new_error(
+        Err(solx_standard_json::OutputError::new_error(
             None,
             message,
             Some(solx_standard_json::OutputErrorSourceLocation::new(
                 path.to_owned(),
             )),
             None,
-        ));
+        ))?;
     }
 
     match era_compiler_common::deserialize_from_slice(result.stdout.as_slice()) {
@@ -129,4 +136,20 @@ where
             );
         }
     }
+}
+
+///
+/// Handles LLVM stack-too-deep errors.
+///
+/// # Safety
+///
+/// This function is unsafe because it is called from LLVM C API.
+/// The function must terminate the process after handling the error.
+///
+pub unsafe extern "C" fn evm_stack_error_handler(spill_area_size: u64) {
+    let result: Result<EVMOutput, Error> = Err(Error::stack_too_deep(spill_area_size));
+    serde_json::to_writer(std::io::stdout(), &result)
+        .unwrap_or_else(|error| panic!("Stdout writing error: {error}"));
+    unsafe { inkwell::support::shutdown_llvm() };
+    std::process::exit(era_compiler_common::EXIT_CODE_SUCCESS);
 }
