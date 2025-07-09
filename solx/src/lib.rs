@@ -302,7 +302,11 @@ pub fn standard_json_evm(
         }
         optimization.chars().next().expect("Always exists")
     } else {
-        solx_standard_json::InputOptimizer::default_mode().expect("Always exists")
+        solc_input
+            .settings
+            .optimizer
+            .mode
+            .unwrap_or(solx_standard_json::InputOptimizer::default_mode().expect("Always exists"))
     };
     let mut optimizer_settings =
         era_compiler_llvm_context::OptimizerSettings::try_from_cli(optimization_mode)?;
